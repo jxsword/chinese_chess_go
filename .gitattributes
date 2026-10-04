@@ -1,0 +1,6 @@
+# Go 源码统一 LF（Windows runner CRLF 检出会让 gofmt 误报格式差）
+*.go text eol=lf
+# 脚本与工作流统一 LF
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
