@@ -80,13 +80,16 @@ out/
 
 # ============== 构建与发布目录 ==============
 # Wails v2：build/ 存放打包资源（appicon/windows/darwin 配置，需提交），
-# 仅 build/bin/ 为构建产物；dist/ 为前端构建输出。
+# 仅 build/bin/ 为构建产物；frontend/dist/ 为前端构建输出
+# （保留 .gitkeep 占位，支撑 //go:embed all:frontend/dist 在前端构建前可编译）。
 build/bin/
-dist/
 bin/
 pkg/
 output/
 release/
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
 
 # 临时文件与日志
 tmp/
@@ -113,3 +116,6 @@ core
 .agents/
 .zcodeignore
 zcode.json
+
+# Wails 生成物（绑定桩与运行时，不依赖它，适配层自带类型声明）
+frontend/wailsjs/

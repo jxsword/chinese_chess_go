@@ -1,0 +1,14 @@
+{
+  "name": "chinese-chess-ultra-go-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite",
+    "build": "vite build && node -e \"require('fs').writeFileSync('dist/.gitkeep','')\""
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "chinese_chess_go",
+  "outputfilename": "chinese-chess-ultra-go",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "juejian",
+    "email": "2301879213@qq.com"
+  },
+  "info": {
+    "productName": "中国象棋 Ultra",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2026",
+    "comments": "中国象棋桌面应用——Flutter 版 ChineseChessUltra 的 Go 全栈重写（Wails v2）"
+  }
+}
