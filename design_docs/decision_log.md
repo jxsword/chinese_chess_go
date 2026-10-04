@@ -57,7 +57,18 @@
 - 结论：B。M3 内部顺序固化：先"不传 HistoryFens 与金标准（engine.json）逐位一致"对拍全绿，**再**开启 L1/L2（受控偏差、默认关闭铁律，沿 Electron 版 §7 测试口径）。全部参数逐值搬移：PATH_REPEAT_PENALTY=[50,150]（第 3 次起返回 0 和棋分）、GLOBAL_REPEAT_PENALTY=100、GLOBAL_CHECK_MAX_PLY=3 且 count≥2 才罚、AVOID_THRESHOLD_BASE={1:200,2:200,3:100,4:50,5:30}、优劣势系数（>200→×0.5，<−200→×2.0）、FORCED_CHANGE_FLOOR=500、L3 裁决状态机（k=2 单方长将警告/k=3 单方判负/双方全程将军不变作和/无人将军判和（AI 自动、玩家询问）/k≥4 强制和）。**长捉与自然限着仍不实现**。
 - 影响：02 §7（L3）、03 §4/§6（L0/L1/L2）、07 §2（fenHistory 四收口）、08 §3（裁决交互）、09（各层测试口径）、10 里程碑表。
 
+## DR-007 frontend 移植边界：@packages/@shared 随迁 + api 适配层 + Worker 客户端改造（2026-10-05）
+- 背景：T0.2 要求「src/renderer 整体复制，唯一改动面 = src/api/，删除 workers/」。实际复制发现 renderer 约 40 个文件静态 import `@packages/*`（TS 领域包）与 `@shared/*`（IPC 类型）——不随迁则无法编译；且 workers/ 的三个客户端类（EngineClient/SolverClient/ParserClient）被 5 个页面与 chessAiPlayer 直接 import。
+- 选项：
+  - A. **@packages/@shared 随迁 + 客户端类移入 src/api（采纳）**——`src/packages`、`src/shared` 原样复制（零改动），别名 `@renderer`→`src`、`@packages`、`@shared` 保持，renderer 组件文件除 import 路径外零改动；`workers/` 三客户端按 00 §3.2 改造为传输后端注入式（`window.go` 探测 → wails 绑定传输 / 否则协议核心 mock 传输，消息形状 `{id,type,payload}`/`{id,ok,result|error|progress}` 保留，铁律 #7）；`*.worker.ts` 薄壳删除，协议核心保留为 mock 后端（dev:web 行为与 Electron 版等价）。优点：M0 可编译可导航、页面测试 202 条随迁全绿、领域逐包替换路径清晰（M3 engine/M4 llm/M5 parsers/M6 solver）。缺点：桌面 bundle 内含暂不执行的 TS 领域代码（约 630KB min+gzip，后续里程碑逐包移除）；桌面引擎计算只在 Go（TS 引擎在桌面包图内为死代码，mock 模式专用）。
+  - B. 前端只留类型、领域调用全部改走绑定——优点：最彻底。缺点：gameVm/四对局页同步调用面全部异步化重构，违反 08 §1「原样复制」，且 M0 无 Go 领域可调。弃。
+  - C. workers/ 保留为 Web Worker——优点：零改造。缺点：违 T0.2 明文与 00 §3.2 通道映射。弃。
+- 附带决策（iconv-lite 浏览器 shim）：`xqfParser` 静态 import 的 iconv-lite 依赖 node:buffer，浏览器包图白屏崩溃（实测 Electron 版当前 dev:web 同样崩溃）。采纳 vite `resolve.alias` 将 `iconv-lite` 指向 `frontend/src/shims/iconv-lite.ts`（WHATWG TextDecoder 原生 gb18030/gbk，仅实现前端用到的 decode 方向）；vitest（Node）不经别名用真实包；不改动移植的领域源码；Go 侧 internal/parsers（M5）仍以 iconv-lite 语义逐行翻译。
+- 结论：A（含附带决策）。
+- 影响：08 §1/§2 的 Go 版落地形态（frontend/src/{app,features,llm,players,stores,packages,shared,api,shims}）、10 R9（用例随迁已验证）、M3/M4/M5/M6 各自替换 `@packages/*` 对应包时的前端改动面收敛于 src/api 与别名表。
+
 ## 附：沿用 Electron 版不做重裁的决策清单
+
 
 | electron-DR | 主题 | Go 版沿用方式 |
 |---|---|---|
