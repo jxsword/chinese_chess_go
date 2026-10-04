@@ -14,9 +14,13 @@ declare global {
 }
 
 function hasWailsBindings(): boolean {
-  // 经 globalThis 取窗体引用：本文件会被 Node 侧测试间接引入（无 DOM 库）
-  const w = (globalThis as unknown as { window?: { readonly go?: unknown } }).window
-  return w?.go !== undefined
+  // 必须探测到 App 方法表（go.app.App），而非仅 window.go：
+  // Wails 运行时先同步注入 window.go = {}，App 方法表经 SetBindings 稍后填充；
+  // 桌面 WebView 内 window.wailsbindings 内联于页面、SetBindings 在模块求值前同步完成，
+  // 故首次解析时必然就绪；而 wails devserver 在外部浏览器打开时只有空 {}（无 wailsbindings），
+  // 按 mock 处理（与 Electron 版 dev:web 行为一致）。
+  const w = globalThis as unknown as { window?: { go?: { app?: { App?: unknown } } } }
+  return w?.window?.go?.app?.App !== undefined
 }
 
 function resolveApi(): WindowApi {
