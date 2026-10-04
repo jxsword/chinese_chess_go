@@ -62,6 +62,12 @@
 - 已知问题：无。
 - 下一步：M0（在新会话逐字粘贴 11 §4.1 M0 启动提示词启动；完成后按 11 §5 验收流暂停等手测）。
 
+## 开发环境（跨会话备忘，2026-10-05 盘点）
+
+- 工具链已齐：Go 1.27.1、Node 24.15（nvm）、wails CLI v2.16.0、git、gh（已认证）；Wails Linux 依赖 libgtk-3-dev 与 libwebkit2gtk-4.1-dev 已装（webkit2gtk-4.0 已从 Ubuntu 26.04 源移除，一律用 `wails dev/build -tags webkit2_41`，CI 同口径）。
+- 测试取证：google-chrome（headless 冒烟）、xwd（窗口取证）；playwright-core 借用 `/home/ssy/proj/chinese_chess_electron/node_modules`（M7 E2E 落地时再入依赖）。
+- **安装权限约定（用户指示）**：开发/构建缺包时代理应自行安装；本机 `sudo` 需密码，**缺包时代理给出确切命令通知用户手动执行**（go/npm 用户态操作不受影响）。M7 打包工具（nfpm/appimagetool/nsis）届时按此办理。
+
 ## 手测指引（M0 待验收）
 
 1. **桌面窗口（wails dev）**：在仓库根目录执行 `wails dev -tags webkit2_41` → WSLg 弹出「中国象棋 Ultra」窗口，主页 7 入口可见可点击。
