@@ -1,0 +1,85 @@
+# M0 CI 骨架（T0.3，10 文档 M0 验证门：三平台 gofmt/vet/test -race + 前端 tsc/eslint/vitest）
+# - Go 缓存：actions/setup-go cache（go-build ~/.cache/go-build + 模块 ~/go/pkg/mod，key 随 go.sum 失效）
+# - 前端缓存：actions/setup-node cache npm（key 随 frontend/package-lock.json）
+# - Linux 需 webkit2gtk-4.1（webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除）并加 webkit2_41 构建标签
+#   （与本地 WSLg 开发口径一致；windows/macos 无需标签——该 cgo 分支仅在 linux 文件）
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    name: Go (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            gotags: webkit2_41
+          - os: windows-latest
+            gotags: ''
+          - os: macos-latest
+            gotags: ''
+    runs-on: ${{ matrix.os }}
+    env:
+      GOFLAGS: ${{ matrix.gotags != '' && format('-tags={0}', matrix.gotags) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Install Linux webview/gtk dev packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      - name: gofmt（空输出为绿）
+        shell: bash
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+  frontend:
+    name: Frontend (tsc/eslint/vitest/build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: typecheck（tsc --noEmit）
+        run: npm run typecheck
+
+      - name: eslint
+        run: npx eslint src test
+
+      - name: vitest
+        run: npm run test:fe
+
+      - name: build（vite 产物可生成，wails build 依赖此步）
+        run: npm run build
