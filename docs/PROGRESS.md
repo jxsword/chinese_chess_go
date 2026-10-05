@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M7（评估 + 打包发布）代码完成，待用户手测（M4/M5/M6 手测项仍待一并验收）**——T7.1~T7.3 全部落地（internal/engine/matchrunner.go：Electron 版 matchRunner.ts 逐行翻译，RunMatch 五结算路径/单手超时 5min/质量评估深度对齐口径/RunMatchSeries 红黑换边；cmd/eval 评估 CLI：4 profile + --suite 四档对比 + MatchReport JSON 落盘，DR-005 请求体恒关思维链有测试断言；打包链：release.yml 三平台矩阵 tag v* 触发 + nfpm deb + AppImage + tar.gz 兜底本地冒烟全过；前端 e2e Playwright 冒烟链路 1 passed）、两轮复审完成（语义一致性：03 §9/05 §9 逐项核对 + "09 §3.4" 坏引用勘误；缺陷扫描：铁律 grep 全过 + -race 全量绿，K34~K36 留档）、质量门全绿（gofmt 空/vet 0/go test -race 全量/前端 249 用例/tsc+eslint 0 错/E2E 绿）。手测清单见下方 M7 交付段。
+**M7（评估 + 打包发布）代码完成，验收中——M1~M6 用户已确认全部手测通过（2026-10-06，无 bug）**——T7.1~T7.3 全部落地（internal/engine/matchrunner.go：Electron 版 matchRunner.ts 逐行翻译，RunMatch 五结算路径/单手超时 5min/质量评估深度对齐口径/RunMatchSeries 红黑换边；cmd/eval 评估 CLI：4 profile + --suite 四档对比 + MatchReport JSON 落盘，DR-005 请求体恒关思维链有测试断言；打包链：release.yml 三平台矩阵 tag v* 触发 + nfpm deb + AppImage + tar.gz 兜底本地冒烟全过；前端 e2e Playwright 冒烟链路 1 passed）、两轮复审完成（语义一致性：03 §9/05 §9 逐项核对 + "09 §3.4" 坏引用勘误；缺陷扫描：铁律 grep 全过 + -race 全量绿，K34~K36 留档）、质量门全绿（gofmt 空/vet 0/go test -race 全量/前端 249 用例/tsc+eslint 0 错/E2E 绿）。剩余验收项：真实端点 --suite（DoD #3/#4）+ 首个 tag 三平台 CI 产包。手测清单见下方 M7 交付段。
 
 ## 里程碑总览
 
@@ -16,10 +16,10 @@
 | M1 规则内核 + L3 | ✅ | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5；用户以启动 M2 验收通过） |
 | M2 对战页 + 存储 | ✅ | — | sqlite DAO + 设置/凭据 + fenHistory 四收口 + 双人页裁决接线（T2.1~T2.4；用户以启动 M3 验收通过） |
 | M3 引擎 + L0/L1/L2 | ✅ | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5；用户以启动 M4 验收通过） |
-| M4 LLM 全链路 | 🔵 代码完成，待手测 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5） |
-| M5 语料 + 棋谱 | 🔵 代码完成，待手测 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6） |
-| M6 工作室 + 求解器 + 识图 | 🔵 代码完成，待手测 | | AND/OR 求解器 + 6 验证 FEN + 工作室三 Tab + 视觉识图（DR-005）+ 求解辅助 + 演示播放器（T6.1~T6.5） |
-| M7 评估 + 打包发布 | 🔵 代码完成，待手测 | | cmd/eval MatchRunner（DR-005）+ 三平台 Release 链 + Playwright E2E（T7.1~T7.3） |
+| M4 LLM 全链路 | ✅+用户 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5；用户手测验收通过 2026-10-06） |
+| M5 语料 + 棋谱 | ✅+用户 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6；用户手测验收通过 2026-10-06） |
+| M6 工作室 + 求解器 + 识图 | ✅+用户 | | AND/OR 求解器 + 6 验证 FEN + 工作室三 Tab + 视觉识图（DR-005）+ 求解辅助 + 演示播放器（T6.1~T6.5；用户手测验收通过 2026-10-06） |
+| M7 评估 + 打包发布 | 🔵 代码完成，待手测 | | cmd/eval MatchRunner（DR-005）+ 三平台 Release 链 + Playwright E2E（T7.1~T7.3）；M1~M6 用户确认全部手测通过（2026-10-06） |
 
 ## 变更日志
 
