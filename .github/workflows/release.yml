@@ -38,6 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # vite 7 要求 node ^20.19 || >=22.12：runner 预装版本不保证，显式固定。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
