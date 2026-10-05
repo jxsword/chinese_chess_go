@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/zalando/go-keyring"
 )
@@ -77,6 +78,7 @@ const (
 
 // Credentials 凭据服务（keyring 主存 + 明文回退文件 + 掩码/合并）。
 type Credentials struct {
+	mu           sync.Mutex // 回退文件读改写互斥（Wails 绑定方法并发进入）
 	keyring      Keyring
 	fallbackPath string // <userData>/credentials.enc
 }
@@ -102,7 +104,9 @@ func MaskApiKey(apiKey string) string {
 // Get 读取槽位：apiKey 已掩码；未配置/损坏返回 nil（llm_config_store.dart:42-51）。
 // 读取顺序：keyring → 明文回退文件（DR-011）。
 func (c *Credentials) Get(slot string) *SlotConfig {
-	cfg := c.getRaw(slot)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cfg := c.getRawLocked(slot)
 	if cfg == nil {
 		return nil
 	}
@@ -115,14 +119,18 @@ func (c *Credentials) Get(slot string) *SlotConfig {
 // M4 请求构造注入真实 Authorization），任何路径不得把返回值发给渲染层或写日志。
 // keyring 优先，明文回退文件兜底。
 func (c *Credentials) GetRaw(slot string) *SlotConfig {
-	return c.getRaw(slot)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.getRawLocked(slot)
 }
 
 // getRaw 读取语义（credentials.ts readEncrypted/readPlain 映射）：
 //   - keyring 命中但解析失败（密文损坏/格式非法）→ 未配置（nil，与"解密失败按未配置"一致）；
 //   - keyring 槽位缺失或 keyring 不可用 → 回退文件（07 §4：keyring 不可用 → 回退）；
 //   - 回退文件该槽位缺失/字段非法 → 未配置（nil）。
-func (c *Credentials) getRaw(slot string) *SlotConfig {
+//
+// 调用方须持 c.mu（Set 的掩码合并路径复用）。
+func (c *Credentials) getRawLocked(slot string) *SlotConfig {
 	if secret, err := c.keyring.Get(KeyringServiceName, slot); err == nil {
 		cfg, ok := parseSlotJSON(secret)
 		if !ok {
@@ -141,7 +149,9 @@ func (c *Credentials) getRaw(slot string) *SlotConfig {
 // （重启后 Key 失效）。apiKey 呈掩码形态时保留存储中的原 Key，仅更新其余字段；
 // 无原 Key 可恢复时按空 Key 处理。
 func (c *Credentials) Set(slot string, payload SlotConfig) (SecureSetResult, error) {
-	merged := c.mergeMaskedKey(slot, payload)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	merged := c.mergeMaskedKeyLocked(slot, payload)
 	if err := c.keyring.Set(KeyringServiceName, slot, marshalSlot(merged)); err == nil {
 		return SecureSetResult{Stored: storedEncrypted}, nil
 	}
@@ -155,6 +165,8 @@ func (c *Credentials) Set(slot string, payload SlotConfig) (SecureSetResult, err
 
 // Delete 删除槽位（keyring 与回退文件双向清理；幂等）。
 func (c *Credentials) Delete(slot string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	_ = c.keyring.Delete(KeyringServiceName, slot) // 槽位可能不存在/keyring 不可用：忽略
 	file := c.readPlainFile()
 	if _, ok := file[slot]; ok {
@@ -164,13 +176,13 @@ func (c *Credentials) Delete(slot string) error {
 	return nil
 }
 
-// mergeMaskedKey 掩码 Key 合并：掩码形态（**** 前缀，先去空白）→ 沿用存储中的原
-// Key；无原 Key → 空串（不落掩码字符串）。
-func (c *Credentials) mergeMaskedKey(slot string, payload SlotConfig) SlotConfig {
+// mergeMaskedKeyLocked 掩码 Key 合并：掩码形态（**** 前缀，先去空白）→ 沿用存储中的原
+// Key；无原 Key → 空串（不落掩码字符串）。调用方须持 c.mu。
+func (c *Credentials) mergeMaskedKeyLocked(slot string, payload SlotConfig) SlotConfig {
 	if !strings.HasPrefix(strings.TrimSpace(payload.APIKey), "****") {
 		return payload
 	}
-	existing := c.getRaw(slot)
+	existing := c.getRawLocked(slot)
 	if existing != nil {
 		payload.APIKey = existing.APIKey
 	} else {

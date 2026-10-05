@@ -466,8 +466,9 @@ type ChessDao struct {
 }
 
 // OpenDao 打开并初始化数据库（07 §1：文件位于 Documents/chinese_chess_ultra_go.sqlite）。
+// busy_timeout 对齐 better-sqlite3 默认 5000ms（并发写等待而非立即 SQLITE_BUSY）。
 func OpenDao(dbPath string) (*ChessDao, error) {
-	db, err := sql.Open(sqliteDriverName, dbPath)
+	db, err := sql.Open(sqliteDriverName, "file:"+dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}

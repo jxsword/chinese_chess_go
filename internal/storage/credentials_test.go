@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -347,4 +348,27 @@ func TestCredentialsFallbackPlainReadKeyringPriority(t *testing.T) {
 	}
 	reader := NewCredentials(newFakeKeyring(false), fallback) // keyring 可用但槽位空
 	assertMaskedGet(t, reader.Get(SlotAssistant))
+}
+
+// 并发写入不同槽位：回退文件读改写互斥（-race 覆盖；Wails 绑定方法并发进入）。
+func TestCredentialsConcurrentSet(t *testing.T) {
+	svc, _ := newTestCredentials(t, newFakeKeyring(true))
+	var wg sync.WaitGroup
+	for i, slot := range []string{SlotRed, SlotBlack, SlotAssistant} {
+		wg.Add(1)
+		go func(slot string, i int) {
+			defer wg.Done()
+			cfg := testConfig
+			cfg.Model = cfg.Model + string(rune('0'+i))
+			if _, err := svc.Set(slot, cfg); err != nil {
+				t.Errorf("set %s: %v", slot, err)
+			}
+		}(slot, i)
+	}
+	wg.Wait()
+	for _, slot := range []string{SlotRed, SlotBlack, SlotAssistant} {
+		if svc.Get(slot) == nil {
+			t.Fatalf("并发写入后 %s 应可读", slot)
+		}
+	}
 }
