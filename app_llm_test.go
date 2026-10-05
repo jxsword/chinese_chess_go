@@ -123,7 +123,8 @@ func TestLlmChatBindingEndToEnd(t *testing.T) {
 		w.write(sseLine("[DONE]"))
 	})
 
-	// 渲染层 wailsAdapter 载荷形状：{requestId, url, headers, body, authSlot}
+	// 渲染层 wailsAdapter 载荷形状：{requestId, url, headers, body, authSlot}；
+	// LlmChat 阻塞至结算（F4 语义：事件在订阅存活期内回发完毕）。
 	err := app.LlmChat(LlmChatRequest{
 		RequestID: "id-chat-1",
 		URL:       server.srv.URL + "/v1/chat/completions",
@@ -131,17 +132,11 @@ func TestLlmChatBindingEndToEnd(t *testing.T) {
 		Body:      `{"model":"glm-4-flash","stream":true}`,
 	})
 	if err != nil {
-		t.Fatalf("LlmChat 应受理即返回：%v", err)
+		t.Fatalf("LlmChat 应恒 resolve nil：%v", err)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		_, done, errs := collector.snapshot()
-		if len(done) > 0 || len(errs) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// F4 防回归：LlmChat 返回时事件必须已全部回发（若退回"受理即返回"，
+	// 事件在订阅注销后才到达，此处 done 即为空）。
 	chunks, done, errs := collector.snapshot()
 	if len(errs) != 0 {
 		t.Fatalf("不应有错误：%v", errs)
@@ -153,7 +148,7 @@ func TestLlmChatBindingEndToEnd(t *testing.T) {
 		}
 	}
 	if text != "着法: b2-e2" || len(done) != 1 || done[0] != "着法: b2-e2" {
-		t.Fatalf("事件流不符：chunks=%q done=%v", text, done)
+		t.Fatalf("LlmChat 返回时事件应已全部送达：chunks=%q done=%v", text, done)
 	}
 
 	// 载荷校验：缺 requestId / url 拒绝。
@@ -175,14 +170,16 @@ func TestLlmChatBindingCancel(t *testing.T) {
 	})
 	defer close(release)
 
-	if err := app.LlmChat(LlmChatRequest{
-		RequestID: "id-cancel",
-		URL:       server.srv.URL,
-		Headers:   map[string]string{"Content-Type": "application/json"},
-		Body:      "{}",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// LlmChat 阻塞至结算（对齐 Electron ipc handler 语义，F4）：放 goroutine，取消后返回。
+	chatReturned := make(chan error, 1)
+	go func() {
+		chatReturned <- app.LlmChat(LlmChatRequest{
+			RequestID: "id-cancel",
+			URL:       server.srv.URL,
+			Headers:   map[string]string{"Content-Type": "application/json"},
+			Body:      "{}",
+		})
+	}()
 	// 等首块到达（deadline 轮询，防 CI 慢载假失败）
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -193,7 +190,15 @@ func TestLlmChatBindingCancel(t *testing.T) {
 	}
 	app.LlmCancel("id-cancel") // 幂等：再取消一次
 	app.LlmCancel("id-cancel")
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case err := <-chatReturned:
+		if err != nil {
+			t.Fatalf("取消结算应恒 resolve nil：%v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("取消后 LlmChat 未在 3s 内返回")
+	}
+	time.Sleep(100 * time.Millisecond)
 
 	chunks, done, errs := collector.snapshot()
 	if len(done) != 0 || len(errs) != 0 {
@@ -231,16 +236,11 @@ func TestLlmChatBindingAuthSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		_, done, _ := collector.snapshot()
-		if len(done) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	if seenAuth != "Bearer sk-real-black-9876" {
 		t.Fatalf("应按槽位注入真实鉴权头：%q", seenAuth)
+	}
+	if _, done, _ := collector.snapshot(); len(done) != 1 {
+		t.Fatalf("LlmChat 返回时 done 应已送达：%v", done)
 	}
 }
 

@@ -23,6 +23,13 @@
 
 ## 变更日志
 
+### 2026-10-05 M4 手测缺陷修复（F4 LlmChat 事件订阅生命周期，待复测）
+
+- **现象**（用户手测，千问 qwen3.8-max）：配置卡"测试连接"成功并保存；大模型对战页开局后红方一直"思考中…"（93 秒+），无重试进度、空闲超时 60 秒后也未降级内置 AI。
+- **根因（P0）**：Go 绑定 `LlmChat` 被实现为"受理即返回"（invoke 立即 resolve），而前端 `llmTransport.chat()` 在 promise 结束的 `.finally()` 里反注册 llm:chunk/done/error 三事件订阅——**订阅在请求发出前即被注销**，Go 侧回发的全部事件（含 Go 侧早已正常完成的结果）无人接收，TS `chatOnce` 永挂。Electron 版同链路成立的原因：`ipcMain.handle(CC.llm.chat) => proxy.chat(req, sender)` 阻塞至结算才 resolve，订阅存活期覆盖整个流。00 §3.2 的"恒 resolve=方法立即返回受理"表述自 M0 占位起即为错误。
+- **修复**：`App.LlmChat` 阻塞至结算后恒 resolve（取消经 LlmCancel → 结算返回，对齐 Electron ipc handler 语义）；00 §3.2 表述修正（文档先行）；绑定测试改严格断言（LlmChat 返回时事件必须已全部送达，防语义回退）；取消用例改 goroutine 调用。质量门全绿（go test -race / tsc / vitest 214）。
+- 已知行为澄清（非缺陷）：空闲超时/总上限的降级发生在**模型真失败**场景——每次重试独立计时（3 次重试 × 最长 240s 总上限），"等待降级"期间状态栏经 onAttempt 显示"第 N/M 次尝试"；本次现象中 Go 侧请求实际已成功，只是事件被丢弃。
+
 ### 2026-10-05 M4 LLM 全链路 交付（T4.1~T4.5，待手测）
 
 **完成清单**（internal/llm 共 9 文件实现 + 8 测试文件，63 Go 用例 + 前端 214 用例全绿）

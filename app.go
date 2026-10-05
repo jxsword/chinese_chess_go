@@ -434,20 +434,24 @@ type LlmChatRequest struct {
 	AuthSlot  string            `json:"authSlot"`
 }
 
-// LlmChat 受理流式对话请求（恒 resolve 语义 = 受理即返回）；
-// 结局经事件 llm:chunk / llm:done / llm:error 回传，载荷含 requestId。
+// LlmChat 受理流式对话请求，阻塞至结算后恒 resolve（对齐 Electron 版 ipc/llm.ts
+// 的 `return proxy.chat(req, safeSender)`：invoke promise 在结算后才 resolve——
+// 前端 llmTransport 以 promise 结束反注册事件订阅，依赖此语义；受理即返回会
+// 使事件在订阅注销后才回发、前端永挂，M4 手测 F4）。结局经事件
+// llm:chunk / llm:done / llm:error 回传，载荷含 requestId。
 // 取消经 LlmCancel；取消后不再有任何事件（迟到丢弃在渲染层按 requestId 收口）。
 func (a *App) LlmChat(req LlmChatRequest) error {
 	if req.RequestID == "" || req.URL == "" {
 		return fmt.Errorf("llm chat 载荷不完整（需 requestId 与 url）")
 	}
-	a.getLlmProxy().Chat(llm.ChatRequest{
+	finished := a.getLlmProxy().Chat(llm.ChatRequest{
 		RequestID: req.RequestID,
 		URL:       req.URL,
 		Headers:   req.Headers,
 		Body:      req.Body,
 		AuthSlot:  req.AuthSlot,
 	}, a.llmSender())
+	<-finished // 阻塞至结算（正常/出错/取消），期间事件订阅存活
 	return nil
 }
 
