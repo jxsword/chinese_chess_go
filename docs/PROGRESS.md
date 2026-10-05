@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M4（LLM 全链路）代码完成，待用户手测**——T4.1~T4.5 全部提交（DR-005 恒发关闭参数双端锁定：Go 九预设快照断言 + 前端 dr005.spec；提示词/解析/注解/管线/参谋制逐字翻译，快照基准=Electron 版既有快照）、两轮复审完成（语义一致性 PASS：P2×2 引擎错误传播语义当场修复 + P3×3 顺手修复/留档；缺陷扫描 PASS：P2×1 修复 + P3×2 留档）、质量门全绿。真实端点手测（GLM/DeepSeek 各一整局）由用户执行。
+**M5（语料 + 棋谱）代码完成，待用户手测**——T5.1~T5.6 全部提交（ICCS/PGN/XQF 解析器逐行翻译 + 真样例锚点/往返构造器、99813 局大文件流式索引验收基准、语料扫描/下载器安全全表、绑定接线与前端 base64 字节契约）、两轮复审完成（语义一致性：P1×1 zip 条目错误语义 + P2×2 当场修复，P3×14 留档 KNOWN_ISSUES K23~K30；缺陷扫描自查：铁律 grep 全过）、质量门全绿。手测清单见下方 M5 交付段。
 
 ## 里程碑总览
 
@@ -17,11 +17,31 @@
 | M2 对战页 + 存储 | ✅ | — | sqlite DAO + 设置/凭据 + fenHistory 四收口 + 双人页裁决接线（T2.1~T2.4；用户以启动 M3 验收通过） |
 | M3 引擎 + L0/L1/L2 | ✅ | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5；用户以启动 M4 验收通过） |
 | M4 LLM 全链路 | 🔵 代码完成，待手测 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5） |
-| M5 语料 + 棋谱 | ⬜ | | |
+| M5 语料 + 棋谱 | 🔵 代码完成，待手测 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6） |
 | M6 工作室 + 求解器 + 识图 | ⬜ | | |
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
+
+### 2026-10-05 M5 语料 + 棋谱 交付（T5.1~T5.6，待手测）
+
+**完成清单**（internal/parsers 6 文件实现 + 5 测试文件 + testdata 样例；internal/storage 3 文件 + 3 测试；app.go 绑定接线；前端适配层 base64 契约；Go 43 新用例 + 前端 231 用例全绿）
+- T5.1（`feat(m5)`）：`internal/parsers/iccs.go`（宽松正则/行镜像 row=9−rank/黑底线 10 兼容）+ `pgnParser.go`（双着法格式：ICCS 与中文纵线记谱并存；中文记谱消解——前后中修饰/列号/全角数字/唯一合法匹配；注释/变着/NAG/结果剔除；多局切分；**ScanGameOffsets 大文件流式按局索引**：1MB 块/8MB 单行截断 P2-5 语义/UTF-8 跨块安全）+ `parsedPuzzle.go`（难度分档/残局判定关键词序）。测试：ICCS 7 + PGN 12（含 **99813 局大文件索引+分页验收基准**、9MB 超长行截断）+ 数据模型 5。
+- T5.2（`feat(m5)`，沿 electron-DR-015）：`internal/parsers/xqfParser.go`——Dong Shiwei 解密逐行翻译（版本 0x0A 分界/formula 链乘密钥/f32 32 字节表/版本≥12 布局位置置换/走子主线 0x18 0x20 偏移+keyXYf/keyXYt/注解 keyRmkSize）；GB18030 经 `golang.org/x/text`（**wails 传递依赖升直接，白名单内**）；真样例锚点 `testdata/xqf/sample_xqf.xqf`（v0x0D 实文件）+ 测试侧往返构造器（旧格式/加密 v0x0C/置换 v0x12/让子 0xFF/黑先行 v0x0B）。真样例 77 着全量重放合法。
+- T5.3（`feat(m5)`）：`internal/parsers/puzzleParser.go` 门面——扩展名分发/重放校验非法着截断（至少 1 着否则弃局）/id `#` 后缀去重/ShouldStreamImport 8MB 阈值。测试 7 用例。
+- T5.4（`feat(m5)`）：`internal/storage/corpus.go`（ResolveCorpusDir 三级优先/ScanCorpus 一级子目录聚合+`_`忽略+CGLemon-PGN 每文件一分类/ListXqfEntries 递归+source 前两级去 gamebooks/ReadCorpusFiles 扩展名白名单/ScanPgnIndex+ReadPgnGameText）+ `internal/parsers/protocol.go`（worker 协议形状保留铁律 #7，parseBatch 逐文件进度回调，ctx 文件边界取消，Runner 与 engine 同型）+ app.go 绑定（CorpusScan/ListEntries/ReadFiles/PgnIndex/ReadPgnGame/PickDirectory + ParserParseBatch/ParserCancel + `parser:progress` 事件）+ **前端 base64 字节契约**（Wails invoke JSON 序列化 Uint8Array 退化索引对象——`api/binary.ts` 收口编解码，wailsAdapter readFiles 解码/parserClient 编码，mock 路径不变；双端测试锁定；06 文档 §0 留档）。
+- T5.5（`feat(m5)`）：`internal/storage/corpusDownloader.go` + `corpusZip.go`（archive/zip 承载）——SSRF 白名单全表逐条（仅 https/localhost/.local/.internal/环回/私有/链路本地/保留段/IPv6 环回 fe80 fc00 fd/mapped IPv4 还原判段/十进制与 0x 整数 IP/八进制分段/溢出大数拒绝）；重定向手动跟随 ≤5 跳逐跳校验；15s 连接超时 + 30s 块间停滞超时经 ctx cancel 中止阻塞 Read；**Range 续传**（If-Range + ETag sidecar，206 续写/200 失败安全回退整体重下，完成清 sidecar）；zip 魔数 + 1MB~512MB 校验；corpus.tmp-<ts> staging 原子 rename 替换失败整体清理；临时目录清理带退避重试（09 §2.4 教训）；zip-slip 全表（../绝对路径/盘符/反斜杠归一/嵌套 ../UNC/符号链接/保留名含扩展形式/尾随点空格/同名冲突不中断/坏 CRC 条目跳过）；app.go CorpusDownload（`corpus:progress` 事件）。
+- T5.6（`feat(m5)`）：app.go DialogSaveFile/DialogReadFile（wails 原生对话框 + 内容写盘/读取绑定层收口；WSLg 原生对话框可用性列手测项——Electron 版因 portal 冻结改自绘，Go 版待实测）；前端 `test/storage/pgnWriter.spec.ts` + 快照自 Electron 基准复制**一次通过**（导出协议面逐位一致）；棋谱库重放（puzzleDemo store M0 已移植）/进入对战（RecordLauncherDialog）页面级用例既有全绿。
+
+**两轮复审（11 §6）**
+- 第一轮·语义一致性（独立代理逐行对照 TS 事实源，8 组）：P1×1（zip 单条目解压失败语义相反：TS 跳过继续/Go 整体中止）+ P2×2（目录条目不落盘计数虚高；ParserCancel 无"请求到达前"粘性记忆）+ P3×14。处置：P1+P2 目录条目当场修复并加回归用例（坏 CRC 跳过 + 目录落盘两条）；P2 粘性记忆经架构评估为不可达窗口（绑定层调用序 + 前端 pending 表先行拒绝，engine.Runner K17 同型）留档 K23；P3 留档 K24~K30（含整数 host 溢出拒绝与 PGN 越界文案两条当场修复）。
+- 第二轮·缺陷扫描（自查）：竞态（Runner mutex/下载 UI 单飞/进度回调 goroutine 安全）、取消链（ParserCancel ctx 全覆盖/下载无取消与 Electron 同）、兜底三态（parseBatch null 位/语料缺失引导）、错误消息无 Key 参与、`-race` 全绿。
+
+**回归护栏（11 §6.3）**：铁律 grep 自检——#1 internal/parsers 零运行时依赖（go list 验证）；net/http 仅在 internal/llm/transport 与 internal/storage/corpusDownloader（**06 §5 补口径说明**：网络/IO 边缘包同 transport 先例，领域包 rules/engine/solver/parsers 仍纯）；#3 解析走法与规则内核合法走法求交；#4 前端零 fetch 出口；#5 事件载荷全含 requestId；#8 M5 无 Key 参与。
+
+**验证门**：`gofmt -l` 空 + `go vet ./...` 0 + `go test ./... -race` 全绿（parsers 32 函数/storage 21 函数/绑定 7 函数）；前端 tsc 0/eslint 0/vitest **25 文件 231 用例**全绿。大文件索引/分页行为与 Electron 版一致（99813 局基准用例）；PGN 导出快照与 Electron 基准逐位一致。
+
+**新增依赖**：`golang.org/x/text v0.39.0`（GB18030 解码；wails 传递依赖升直接，白名单内，T5.2 commit 说明）。
 
 ### 2026-10-05 M4 手测缺陷修复（F4 LlmChat 事件订阅生命周期，待复测）
 
