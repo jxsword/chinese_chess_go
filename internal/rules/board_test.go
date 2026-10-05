@@ -243,3 +243,134 @@ func TestApplyMoveUndoMoveInverse(t *testing.T) {
 		t.Errorf("悔棋后应轮回红方")
 	}
 }
+
+// --- T1.3 合法性过滤与胜负负例（board.spec.ts 将军/将死/困毙/legalMovesFor 段） ---
+
+func TestCheckFacingKings(t *testing.T) {
+	// 将帅照面：双将同列且中间无子时双方都算被将军。
+	board := boardWith(t, []pieceSpec{{4, 9, 'K'}, {4, 0, 'k'}}, true)
+	if !board.IsCheck(Red) {
+		t.Errorf("IsCheck(red) = false, 期望 true（照面）")
+	}
+	if !board.IsCheck(Black) {
+		t.Errorf("IsCheck(black) = false, 期望 true（照面）")
+	}
+}
+
+func TestCheckRookFacingKing(t *testing.T) {
+	// isCheck：车直面对方将算将军。
+	board := boardWith(t, []pieceSpec{{4, 5, 'R'}, {4, 0, 'k'}, {4, 9, 'K'}}, true)
+	if !board.IsCheck(Black) {
+		t.Errorf("IsCheck(black) = false, 期望 true")
+	}
+}
+
+func TestCheckmateClassicSingleRook(t *testing.T) {
+	// 黑将在九宫顶角 (3,0)，红车控制第三列与第 0 行；黑方无路可逃。
+	board := boardWith(t, []pieceSpec{{3, 5, 'R'}, {0, 0, 'R'}, {3, 0, 'k'}, {4, 9, 'K'}}, false)
+	if !board.IsCheck(Black) {
+		t.Errorf("IsCheck(black) = false, 期望 true")
+	}
+	if !board.IsCheckmate(Black) {
+		t.Errorf("IsCheckmate(black) = false, 期望 true")
+	}
+}
+
+func TestStalemateInitialHasMoves(t *testing.T) {
+	// isStalemate：初始局面未被将军且必然有合法着法。
+	board := Initial()
+	if board.IsCheck(Red) {
+		t.Errorf("IsCheck(red) = true, 期望 false")
+	}
+	if board.IsStalemate(Red) {
+		t.Errorf("IsStalemate(red) = true, 期望 false")
+	}
+}
+
+func TestStalemateConstructedStalemate(t *testing.T) {
+	// isStalemate：将+双仕+马被炮牵制构造的困毙局面（02 §3 困毙判负）。
+	// 黑：将(4,0) 仕(3,0) 仕(5,0) 马(4,1)；红：炮(4,9) 兵(4,5)作炮架 帅(3,9)。
+	// 黑方：将三格被己方子占；仕唯一落点 (4,1) 被马占；马任一落点都会撤掉炮架
+	// 使红炮沿第 4 列直照黑将 → 全部非法，且黑方未被将军 → 困毙。
+	board, err := FromFen("3aka3/4n4/9/9/9/4P4/9/9/9/3KC4 b - - 0 1")
+	if err != nil {
+		t.Fatalf("FromFen 报错: %v", err)
+	}
+	if board.IsCheck(Black) {
+		t.Errorf("IsCheck(black) = true, 期望 false")
+	}
+	if !board.IsStalemate(Black) {
+		t.Errorf("IsStalemate(black) = false, 期望 true")
+	}
+	if board.IsCheckmate(Black) {
+		t.Errorf("IsCheckmate(black) = true, 期望 false")
+	}
+	if moves := board.AllLegalMoves(Black); len(moves) != 0 {
+		t.Errorf("AllLegalMoves(black) = %d 条, 期望 0", len(moves))
+	}
+}
+
+func TestLegalMovesForOpponentSideEmpty(t *testing.T) {
+	// legalMovesFor：非轮走方棋子返回空列表。
+	board := boardWith(t, []pieceSpec{{4, 9, 'K'}, {0, 0, 'k'}}, true)
+	// 红方轮走：黑车（此处为黑将所在格之外的任意黑子）的合法走法为空。
+	if moves := board.LegalMovesFor(Pos(0, 0)); len(moves) != 0 {
+		t.Errorf("LegalMovesFor(黑将) = %d 条, 期望 0（非轮走方）", len(moves))
+	}
+}
+
+func TestLegalMovesForPinnedRook(t *testing.T) {
+	// 送将着法被过滤：炮架车不能横移离开被牵制的纵线。
+	// 红车 (4,5) 在红帅 (4,9) 与黑车 (4,0) 之间，横移会暴露红帅。
+	board := boardWith(t, []pieceSpec{{4, 0, 'r'}, {4, 5, 'R'}, {4, 9, 'K'}}, true)
+	moves := board.LegalMovesFor(Pos(4, 5))
+	// 只能沿第 4 列移动（含吃黑车 (4,0)），共 8 着。
+	if len(moves) != 8 {
+		t.Errorf("被牵制车合法走法 = %d, 期望 8", len(moves))
+	}
+	for _, m := range moves {
+		if m.To.Col != 4 {
+			t.Errorf("存在离开纵线的走法 to=(%d,%d)", m.To.Col, m.To.Row)
+		}
+	}
+	if hasTarget(moves, 3, 5) {
+		t.Errorf("横移 (3,5) 送将，应被过滤")
+	}
+	if !hasTarget(moves, 4, 0) {
+		t.Errorf("缺少沿纵线吃黑车 (4,0)")
+	}
+}
+
+func TestLegalMovesForFacingNoScreen(t *testing.T) {
+	// 照面负例：双将同列无遮蔽时，同列移动被过滤、横移合法。
+	board := boardWith(t, []pieceSpec{{4, 9, 'K'}, {4, 0, 'k'}}, true)
+	moves := board.LegalMovesFor(Pos(4, 9))
+	// (4,8) 仍与黑将同列 → 非法；(3,9)/(5,9) 合法。
+	if hasTarget(moves, 4, 8) {
+		t.Errorf("(4,8) 仍照面，应被过滤")
+	}
+	if !hasTarget(moves, 3, 9) || !hasTarget(moves, 5, 9) {
+		t.Errorf("缺少横移 (3,9)/(5,9)")
+	}
+	if len(moves) != 2 {
+		t.Errorf("帅合法走法 = %d, 期望 2", len(moves))
+	}
+}
+
+func TestLegalMovesForFacingWithScreen(t *testing.T) {
+	// 照面负例：有遮蔽时同列移动合法；遮蔽子离开该列的着法全部非法。
+	board := boardWith(t, []pieceSpec{{4, 9, 'K'}, {4, 0, 'k'}, {4, 5, 'N'}}, true)
+	// 红帅沿同列移动 OK（马仍是遮蔽）。
+	kingMoves := board.LegalMovesFor(Pos(4, 9))
+	if !hasTarget(kingMoves, 4, 8) {
+		t.Errorf("有遮蔽时 (4,8) 应合法")
+	}
+	if len(kingMoves) != 3 {
+		t.Errorf("帅合法走法 = %d, 期望 3", len(kingMoves))
+	}
+	// 马的任何落点都离开第 4 列 → 撤掉遮蔽 → 送将 → 全部被过滤。
+	knightMoves := board.LegalMovesFor(Pos(4, 5))
+	if len(knightMoves) != 0 {
+		t.Errorf("遮蔽马合法走法 = %d 条, 期望 0", len(knightMoves))
+	}
+}
