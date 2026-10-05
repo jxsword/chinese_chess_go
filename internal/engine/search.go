@@ -19,8 +19,6 @@ import (
 	"math/rand/v2"
 	"slices"
 	"time"
-
-	"github.com/jxsword/chinese_chess_go/internal/rules"
 )
 
 // MATE_SCORE 将杀评分（区分被杀步数，越早被杀分越差）。
@@ -468,6 +466,3 @@ func (s *Search) bumpNode() error {
 	}
 	return nil
 }
-
-// packedTarget packed 走法的目标格（search 内部调试/测试用；对齐 TS packedTarget 导出）。
-func packedTarget(packed int32) rules.Position { return IndexToPos(PackedTo(packed)) }
