@@ -3,7 +3,9 @@ package engine
 // ChessAi 三接口行为等价单测（09 §2.2；Electron 版 chessAi.spec.ts
 // "行为等价（Dart ai_engine_test.dart / ai_engine_ex_test.dart 用例集）"的 Go 对应）。
 import (
+	"os"
 	"testing"
+	"time"
 
 	"github.com/jxsword/chinese_chess_go/internal/rules"
 )
@@ -247,4 +249,25 @@ func TestEvaluateMoveShouldAbortNotTriggered(t *testing.T) {
 	if err != nil || cp == nil {
 		t.Fatalf("应正常评估: %v %v", cp, err)
 	}
+}
+
+// 性能门（RUN_SLOW=1 启用，09 §2.2：难度 5 应答 ≤ 7.5s；对齐 Electron 版 @slow 用例）。
+func TestPerformanceGateDifficulty5(t *testing.T) {
+	if os.Getenv("RUN_SLOW") != "1" {
+		t.Skip("性能门：需 RUN_SLOW=1（09 §2.2）")
+	}
+	board := rules.Initial()
+	start := time.Now()
+	move, err := FindBestMove(board.ToFen(), FindBestMoveOptions{Difficulty: 5})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("FindBestMove 报错: %v", err)
+	}
+	if move == nil {
+		t.Fatal("应返回走法")
+	}
+	if elapsed > 7500*time.Millisecond {
+		t.Errorf("难度 5 应答 %v > 7.5s 性能门", elapsed)
+	}
+	t.Logf("性能门：难度 5 初始局面应答 %v", elapsed)
 }

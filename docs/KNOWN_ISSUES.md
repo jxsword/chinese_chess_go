@@ -34,6 +34,13 @@
 | K15 | P3 | **settings clamp 边界差**：load 时 clamp 仅对已存在键生效（缺省键不注入内存表，`StoreGet` 返回 null 由渲染层 fromRaw 兜底——electron-store 虚拟缺省语义）；present 数值截断取整（7.9→7，TS fromRaw 保留 7.9 后由渲染层再 clamp）。仅手改 settings.json 场景可观测。 | 无需处置；M4 Go 侧消费者（代理空闲超时）注意 nil→默认兜底。 |
 | K16 | P3 | **beforeClose 有界等待 300ms**：退出前 fire-and-forget 自动存档的 best-effort 窗口（等价 Electron 同步 best-effort 语义）；极端慢盘下最后一着可能不入档。 | 可接受（与 Electron 版同级保真）；如手测出现高频丢档再改前台等待确认。 |
 
+## M3（引擎 + L0/L1/L2 重复治理）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K17 | P3 | **Runner 同 id 并发在途注册表以后到者为准**：Submit 重写 cancels[id]，先到请求结算时 delete 会摘走后到的注册项，其后 Cancel(id) 对后到请求失效。requestId 全局唯一是 00 §3.2 调用方契约（前端 createRequestId UUID 工厂，页面 gameSeq 保证至多一个在途 AI 搜索），契约内不可达。 | 无需处置；如未来出现同 id 复用在途场景，Submit 改为拒绝重复 id（一行改动）。 |
+| K18 | P3 | **随机路径（难度 1/2 与 L2 候选洗牌）跨语言伪随机源不同**：TS `Math.random` vs Go `math/rand/v2`（自动播种）。randomness>0 时难度 1/2 的具体应手、L2 阈值内多候选时的具体换着，Go 与 TS/Dart 不逐位一致——原版同分随机即不保证复现（金标准对拍仅覆盖 randomness=0 路径）。 | 无需处置；行为面（随机取一）与阈值/候选集口径逐值一致，确定性测试以注入随机源锁定（avoidance_test）。 |
+
 ## 已修复（保留记录）
 
 | # | 级别 | 描述 | 修复 |

@@ -161,8 +161,12 @@ func wireReportFromRules(r *EngineReport) WireReport {
 }
 
 // Handle 协议分发：payload 反解 → 引擎调用 → Response。
-// ctx 已取消时直接回 canceled（取消=调用方丢弃语义收口，03 §7）。
+// ctx 已取消时直接回 canceled（取消=调用方丢弃语义收口，03 §7）：
+// 入口即回不空算，计算后复查不把取消期间完成的部分结果当有效应答。
 func Handle(ctx context.Context, req Request) Response {
+	if req.Type != ReqCancel && ctx.Err() != nil {
+		return Response{ID: req.ID, Error: ErrCanceled.Error()}
+	}
 	switch req.Type {
 	case ReqCancel:
 		// cancel 由 Runner/绑定层注册表执行；协议层幂等空响应。
@@ -248,6 +252,8 @@ func NewRunner() *Runner {
 
 // Submit 受理请求：立即返回响应通道（单请求单 goroutine，无 FIFO 排队；
 // 串行语义由调用方按需自保证——对局页同一时刻至多一个在途搜索）。
+// requestID 唯一性是 00 §3.2 调用方契约（前端 UUID 工厂）；同 id 并发在途
+// 属契约违例，注册表以后到者为准（见 KNOWN_ISSUES K17）。
 func (r *Runner) Submit(req Request) <-chan Response {
 	ch := make(chan Response, 1)
 	if req.Type == ReqCancel {
