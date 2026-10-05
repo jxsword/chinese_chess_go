@@ -1,0 +1,182 @@
+# release.yml（T7.2，10 文档 §4 定案）：
+#   tag v* 触发 → 三平台矩阵 lint+test+build → artifact → 汇总上传 GitHub Draft Release。
+# 产物矩阵：
+#   Linux   deb（nfpm）+ AppImage（linuxdeploy）+ 裸二进制 tar.gz 兜底
+#   Windows Setup.exe（wails build -nsis）
+#   macOS   universal（x64+arm64）.app → dmg（hdiutil）
+# 缓存：go-build（~/.cache/go-build）与模块（~/go/pkg/mod）由 setup-go 内建缓存
+#   （key 随 go.sum 失效）；wails CLI / nfpm 按 WAILS_VERSION/NFPM_VERSION 缓存；
+#   Windows NSIS 工具（%LOCALAPPDATA%/wails2/nsis）随 wails 版本缓存。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # gh release 上传 Draft Release 所需
+
+env:
+  WAILS_VERSION: v2.16.0
+  NFPM_VERSION: v2.41.1
+  APP_NAME: chinese-chess-ultra-go
+
+jobs:
+  build:
+    name: ${{ matrix.os }} 打包
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+          - os: windows-latest
+            platform: windows/amd64
+          - os: macos-latest
+            platform: darwin/universal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true # ~/.cache/go-build + ~/go/pkg/mod，key 随 go.sum 失效
+
+      # ---- 工具缓存：wails CLI / nfpm（key 随版本失效）----
+      - name: Cache CLI tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/wails
+            ~/go/bin/nfpm
+          key: cli-tools-${{ runner.os }}-${{ env.WAILS_VERSION }}-${{ env.NFPM_VERSION }}
+      - name: Cache NSIS (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/wails2/nsis
+          key: nsis-${{ env.WAILS_VERSION }}
+
+      - name: Install wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Install nfpm (Linux)
+        if: runner.os == 'Linux'
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@${{ env.NFPM_VERSION }}
+
+      # ---- Linux 构建依赖（CI 同口径：webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，
+      #      装 4.1 并以 webkit2_41 标签构建——沿 ci.yml/10 §3 R1'，PROGRESS T0.3）----
+      - name: Install GTK/WebKitGTK dev headers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+      # ---- 质量门（09 §4；gofmt 平台无关，跑 Linux 一份即可）----
+      - name: Lint (gofmt + go vet)
+        if: runner.os == 'Linux'
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+      - name: Vet
+        if: runner.os != 'Linux'
+        run: go vet ./...
+
+      # -race 需 CGO 工具链，Windows runner 无默认 gcc：windows 退化为普通 go test。
+      - name: Go test (-race)
+        if: runner.os != 'Windows'
+        run: go test ./... -race
+      - name: Go test
+        if: runner.os == 'Windows'
+        run: go test ./...
+
+      - name: Frontend lint + test (Linux 一份)
+        if: runner.os == 'Linux'
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run test:fe
+
+      # ---- 构建 ----
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: wails build -platform linux/amd64 -tags webkit2_41
+      - name: Build + NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: wails build -platform windows/amd64 -nsis
+      - name: Build (macOS universal)
+        if: runner.os == 'macOS'
+        run: wails build -platform darwin/universal
+
+      # ---- 平台打包 ----
+      - name: Package deb + AppImage + tar.gz (Linux)
+        if: runner.os == 'Linux'
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          nfpm package -f build/nfpm.yaml -p deb \
+            -t "build/bin/${APP_NAME}_${VER_NUM}_amd64.deb"
+          ./build/linux/build-appimage.sh "$VER_NUM"
+          tar -czf "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz" -C build/bin "${APP_NAME}"
+      - name: Rename installer (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          mv build/bin/*-installer.exe "build/bin/${APP_NAME}-${VER_NUM}-windows-amd64-setup.exe"
+      - name: Package dmg (macOS)
+        if: runner.os == 'macOS'
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          hdiutil create -volname "中国象棋 Ultra" \
+            -srcfolder "build/bin/${APP_NAME}.app" \
+            -ov -format UDZO "build/bin/${APP_NAME}-${VER_NUM}-macos-universal.dmg"
+
+      # ---- artifact：汇总 job 收集上传 Draft Release ----
+      - name: Collect artifacts
+        shell: bash
+        env:
+          VER: ${{ github.ref_name }}
+        run: |
+          VER_NUM="${VER#v}"
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            Linux)
+              cp "build/bin/${APP_NAME}_${VER_NUM}_amd64.deb" dist/
+              cp "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.AppImage" dist/
+              cp "build/bin/${APP_NAME}-${VER_NUM}-linux-amd64.tar.gz" dist/
+              ;;
+            Windows)
+              cp "build/bin/${APP_NAME}-${VER_NUM}-windows-amd64-setup.exe" dist/
+              ;;
+            macOS)
+              cp "build/bin/${APP_NAME}-${VER_NUM}-macos-universal.dmg" dist/
+              ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    name: 汇总上传 Draft Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Upload GitHub Draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ github.ref_name }}
+        run: |
+          gh release create "$VER" --draft --title "中国象棋 Ultra ${VER}" \
+            --generate-notes dist/*

@@ -105,3 +105,16 @@
 | DR-018/019 | 重复治理三层 + Zobrist 单源 | 见 DR-006（前置化） |
 | DR-016 | zip 零依赖解压 | Go 标准库 archive/zip 实现（同等安全检查） |
 | electron-DR-005 | invoke 恒 resolve + 结局走事件 | 映射为 Wails 绑定 + EventsEmit（00 §3） |
+
+## DR-010 M7 打包工具链定案落地：release.yml 三平台矩阵（deb/AppImage/tar.gz + NSIS + dmg）（2026-10-06）
+- 背景：10 §4 在立项期已预置候选表（"M7 裁决定案，先预置"），T7.2 按表落地并补全取舍记录。约束：纯 Go 依赖白名单不新增模块依赖（打包工具均为 CI/本地 CLI，不进 go.mod）；发布流沿用 Electron 版已验证的"矩阵产包→artifact→汇总上传 Draft Release"模式。
+- 选项：
+  - A. wails -nsis / hdiutil dmg / nfpm deb + linuxdeploy AppImage + tar.gz 兜底（10 §4 原案）——优点：wails 生态内建、hdiutil 系统自带零依赖、nfpm 纯 Go 单二进制可 `go install`、AppImage 免 root 兼容面最广、tar.gz 兜底可审计。缺点：AppImage 产物 80MB（自带 webkit 全量 so）。代价：4 个配置文件 + release.yml。采纳。
+  - B. goreleaser 统一编排——优点：单配置多平台。缺点：wails 需自定义 build hook、nfpm/appimagetool 仍要外挂、额外学习层不减少实质配置。弃：引入新工具不如直写 workflow 清晰可审计。
+  - C. create-dmg（macOS）替代 hdiutil——优点：花哨拖拽背景。缺点：需 brew 装工具、CI 多一层下载。弃：dmg 只是分发容器，hdiutil UDZO 一行到位。
+  - D. nfpm 加 rpm 输出——优点：覆盖 Fedora。缺点：目标用户面单一（自有 deb 需求明确）。弃：按需后补。
+  - E. Linux 直接 AppImage 单格式（去 deb）——优点：少一个包。缺点：deb 有桌面条目/图标集成，apt 用户自然。弃：双格式成本近零（同一 nfpm/linuxdeploy 各一行）。
+  - F. Windows 追加绿色 zip——优点：免安装党。缺点：10 §4 未定案，Setup.exe 已覆盖验收口径。弃：DoD 不要求。
+- 结论：A（按 10 §4 定案落地），Linux 构建按 CI 同口径 `-tags webkit2_41` + libwebkit2gtk-4.1-dev（webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，10 §3 R1' 缓解沿 ci.yml；启动提示词中 "libwebkit2gtk-4.0-dev" 为预置期旧口径）；Windows runner go test 退化无 -race（CGO 工具链缺失）。
+- 理由：全部工具在依赖白名单哲学内（不进 go.mod）；每平台选择其生态最短路；弃用项均记录可回溯。
+- 影响：.github/workflows/release.yml、build/nfpm.yaml、build/linux/{build-appimage.sh,desktop,512 图标}；10 §4 增落地注记；本地已冒烟 Linux 三产物 + 二进制启动（12.9s 构建）。

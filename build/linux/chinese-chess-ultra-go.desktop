@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=中国象棋 Ultra
+Comment=中国象棋桌面应用——Flutter 版 ChineseChessUltra 的 Go 全栈重写（Wails v2）
+Exec=chinese-chess-ultra-go
+Icon=chinese-chess-ultra-go
+Categories=Game;BoardGame;
+Terminal=false
+StartupWMClass=chinese-chess-ultra-go

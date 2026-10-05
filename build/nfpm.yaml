@@ -1,0 +1,25 @@
+# nfpm deb 打包配置（10 文档 §4 定案：Linux 用 nfpm 产 deb）。
+# 用法：wails build 后执行
+#   nfpm package -f build/nfpm.yaml -p deb -t build/bin/chinese-chess-ultra-go_<ver>_amd64.deb
+# version 与 wails.json productVersion 同源（1.0.0）；发布文件名的版本号由 CI 注入。
+name: chinese-chess-ultra-go
+arch: amd64
+platform: linux
+version: 1.0.0
+section: games
+priority: optional
+maintainer: juejian <2301879213@qq.com>
+description: |
+  中国象棋桌面应用——Flutter 版 ChineseChessUltra 的 Go 全栈重写（Wails v2）。
+  内置 AI 引擎 / 残局求解器 / 大模型对战（思维链强制关闭）/ 语料棋谱库。
+homepage: https://github.com/jxsword/chinese_chess_go
+license: MIT
+# 运行时依赖按 distro 命名差异大（webkit2gtk-4.0 在 22.04/24.04 包名不同），
+# 不写 depends 硬绑：缺失时由用户按发行版安装 libgtk-3 / libwebkit2gtk-4.0。
+contents:
+  - src: build/bin/chinese-chess-ultra-go
+    dst: /usr/bin/chinese-chess-ultra-go
+  - src: build/linux/chinese-chess-ultra-go.desktop
+    dst: /usr/share/applications/chinese-chess-ultra-go.desktop
+  - src: build/linux/chinese-chess-ultra-go-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/chinese-chess-ultra-go.png
