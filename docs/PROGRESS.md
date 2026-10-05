@@ -55,6 +55,20 @@
 
 **复测指引**：重开 `wails dev -tags webkit2_41` → 双人页走数着后手动保存（toast"棋局已保存"）→ 确认 `~/Documents/chinese_chess_ultra_go.sqlite` 已生成 → 关闭重进恢复局面；设置弹窗切换自动保存 → `~/.config/chinese_chess_ultra_go/settings.json` 出现；分享棋局 → 剪贴板含中文记谱。其余 M2 手测清单（PROGRESS §手测指引 A 组）请一并复测。
 
+### 2026-10-05 M2 手测缺陷修复第二轮（F3 存档恢复语义，DR-008，待复测）
+
+**手测反馈**：保存成功，但恢复后盘面被改写——黑马位置出现黑车、原位车消失（对照图：保存时黑车在 display-h9/黑马在 g7；恢复后 g7 变车、h9 空）。
+
+**根因（P1，F3）**：保存端 `serialize()` 存**当前（终局）局面 FEN**（Flutter `board_vm.dart:308-311` 原版即如此，Electron 逐字继承，Go M0 逐字继承），而恢复端 `restore(fen, moves)` 以该 FEN 为基准重放着法栈（`board_vm.dart:87-132`，其注释将"源格有子"视为常态）——两端语义错位：正常情形着法全部被"源格无子"跳过（恢复后历史必清空）；本局第 4 步"车 i9→h9"后 h9 恰有车，重放"马 h9→g7"时源格有车 → 车被误走到 g7 覆盖马。即原版潜伏缺陷，Go 版逐字继承后首次被手测暴露。
+
+**修复（Decision: DR-008）**：serialize 存**本局起始 FEN** + 完整着法栈（gameVm.ts 新增 `_startFen`：构造/newGame/newGameFromFen/restore 设定；serialize 与 restore 语义对齐）——恢复即重放重建整局：局面正确、走法历史与 fenHistory 完整重建（07 §3 restore 逐手采集与 DR-006 四收口真正成立）、跳脏语义保留、恢复后悔棋/续存自洽。文档先行：07 §2/§3 修订 + decision_log DR-008（决策矩阵：A 保持 1:1 带病 / B 起始 FEN 语义 / C 忽略着法直接终局开局——选 B）。
+
+**用例改写（3 处，均注明 DR-008 依据）**：gameVmFenHistory.spec（restore 重建断言）、autoSaveRestore.spec（存档 fen=起始 FEN + 恢复后 2 手历史 + 悔棋跨恢复点）、gameStore.spec（serialize 返回起始 FEN）。**端到端复现取证**：wails dev + 真实页面环境 + 真实 Go 存储，逐手复现手测 4 步（炮二平五/黑马8进7/马二进三/车9平8）→ 保存 → 恢复：**恢复后局面与保存时逐位一致、4 手历史完整、fenHistory 5 项**。
+
+**质量门**：Go `-race` 全绿；前端 22 文件 **207 用例**全绿；tsc/eslint 0 error。
+
+**复测指引**：重开 `wails dev -tags webkit2_41` → 双人页走 4+ 步（含车/马移动）→ 关闭或手动保存 → 重进：局面与保存时完全一致、步数不变、悔棋可一路退回开局。⚠ 修复前写入的旧存档（fen 为终局语义）不兼容，首次进入若见异常盘面，点"新游戏"后再保存一次即覆盖为新语义。
+
 ## 手测指引（M2 待验收）
 
 ### A. 桌面双人完整对局（验证门主链路）

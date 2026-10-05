@@ -41,17 +41,21 @@ describe('GameVm fenHistory（DR-018）', () => {
     expect(undone.fenHistory).toEqual([FEN_START])
   })
 
-  it('restore 重放逐手采集 fenHistory（含原版跳脏语义）', () => {
+  it('restore 重放逐手采集 fenHistory（DR-008：存档含起始 FEN，恢复即重建整局）', () => {
     const store = createGameStore({ mode: 'humanVsHuman' })
     playCannonMid(store)
     const saved = store.getState().vm.serialize()
-    // 原版语义：restore 在存档 FEN 之上重放 moves，源格无子的记录被跳过，
-    // 恢复后走法历史通常为空（board_vm.dart:87-132，1:1 保留）。
+    // serialize 存本局起始 FEN + 完整着法栈（DR-008）：restore 以起始 FEN 建盘重放，
+    // 历史与 fenHistory 完整重建。原版存终局 FEN 致重放全部跳过（历史清空）且起点
+    // 恰有子的着法被误重放改写盘面（实机缺陷 F3，Flutter board_vm.dart:308-311 与
+    // restore:87-132 语义错位），Go 版修复并留档。
+    expect(saved.fen).toBe(FEN_START)
     const restored = createGameStore({ mode: 'humanVsHuman' })
     restored.getState().vm.restore(saved)
-    expect(restored.getState().moveHistory).toHaveLength(0)
-    expect(restored.getState().fenHistory).toEqual([saved.fen])
-    // 重放真正生效的路径：起始 FEN + 从该局面出发的有效四元组。
+    expect(restored.getState().moveHistory).toHaveLength(1)
+    expect(restored.getState().fenHistory.length).toBe(2)
+    expect(restored.getState().fen).toBe(store.getState().fen)
+    // 重放路径与直接对局等价：起始 FEN + 有效四元组。
     const replayed = createGameStore({ mode: 'humanVsHuman' })
     replayed.getState().vm.restore({ fen: FEN_START, moves: [[1, 7, 4, 7]] })
     const state = replayed.getState()

@@ -173,15 +173,17 @@ describe('GameVm 扩展（输入锁/强校验/序列化/恢复，board_vm.dart:1
     expect(store.getState().moveHistory).toHaveLength(0)
   })
 
-  it('serialize 返回终局 FEN 与裸四元组', () => {
+  it('serialize 返回本局起始 FEN（DR-008）与裸四元组', () => {
     const store = createGameStore({ mode: 'humanVsHuman' })
     const vm = store.getState().vm
     vm.onTap(0, 9)
     vm.onTap(0, 8)
     const data = vm.serialize()
     expect(data.moves).toEqual([[0, 9, 0, 8]])
-    expect(data.fen).toBe(store.getState().fen)
-    expect(data.fen.split(' ')[1]).toBe('b')
+    // DR-008：fen 为本局起始 FEN（restore 据此重放重建整局）；当前局面在快照上
+    expect(data.fen).not.toBe(store.getState().fen)
+    expect(data.fen).toBe('rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1')
+    expect(store.getState().fen.split(' ')[1]).toBe('b')
   })
 
   it('restore 重放四元组并跳过脏记录（长度≠4/越界/源格无子）', () => {

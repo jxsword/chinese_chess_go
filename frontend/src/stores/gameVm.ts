@@ -58,6 +58,8 @@ function safeBoardFromFen(fen: string | undefined): Board {
 
 export class GameVm {
   private _board: Board
+  /** 本局起始 FEN（serialize 存它 + 完整着法栈，DR-008：restore 以此为基准重放重建整局） */
+  private _startFen: string
   private history: Move[] = []
   /** 逐手局面 FEN（含初始局面，与 history 一一对应+1；executeMove push / undo pop / restore 重放重建） */
   private _fenHistory: string[] = []
@@ -68,6 +70,7 @@ export class GameVm {
 
   constructor(config: GameVmConfig = {}) {
     this._board = safeBoardFromFen(config.initialFen)
+    this._startFen = this._board.toFen()
     this._fenHistory = [this._board.toFen()]
     this.snap = this.buildSnapshot()
   }
@@ -135,6 +138,7 @@ export class GameVm {
   }
 
   /** 恢复历史走法，逐手 replay（board_vm.dart:87-132）。
+   * 重放基准 = 存档的本局起始 FEN（DR-008：serialize 存起始 FEN + 完整着法栈）。
    * 跳脏记录：长度≠4 / 非整数 / 越界 / 源格无子；完成后仅保留 lastMove 高亮。 */
   restore({ fen, moves }: { fen: string; moves: number[][] }): void {
     try {
@@ -142,6 +146,7 @@ export class GameVm {
     } catch {
       this._board = Board.initial()
     }
+    this._startFen = this._board.toFen()
     this.history = []
     this._fenHistory = [this._board.toFen()]
     for (const m of moves) {
@@ -270,6 +275,7 @@ export class GameVm {
   newGame(): void {
     this.inputLocked = false
     this._board = Board.initial()
+    this._startFen = this._board.toFen()
     this.history = []
     this._fenHistory = [this._board.toFen()]
     this.commit(this.buildSnapshot())
@@ -279,6 +285,7 @@ export class GameVm {
   newGameFromFen(fen: string): void {
     this.inputLocked = false
     this._board = safeBoardFromFen(fen)
+    this._startFen = this._board.toFen()
     this.history = []
     this._fenHistory = [this._board.toFen()]
     this.commit(this.buildSnapshot())
@@ -306,8 +313,10 @@ export class GameVm {
     })
   }
 
-  /** 序列化为可保存数据（board_vm.dart:308-310；moves 为裸四元组） */
+  /** 序列化为可保存数据（board_vm.dart:308-310；moves 为裸四元组）。
+   * DR-008：fen 存本局起始 FEN（原版存当前局面与 restore 的起始重放语义错位，
+   * 导致恢复时着法被误重放/历史清空——实机缺陷 F3），restore 据此重建整局。 */
   serialize(): { fen: string; moves: number[][] } {
-    return { fen: this.current.fen, moves: encodeMoveStack(this.history) }
+    return { fen: this._startFen, moves: encodeMoveStack(this.history) }
   }
 }

@@ -32,7 +32,7 @@ describe('自动保存/恢复状态机', () => {
     return new GameAutoSave({ mode: 'humanVsHuman', vm: store.getState().vm, canSave, repo })
   }
 
-  it('走子后 saveOnExit 写入模式桶（loadLatest 回读 FEN 与四元组）', async () => {
+  it('走子后 saveOnExit 写入模式桶（loadLatest 回读起始 FEN 与四元组）', async () => {
     const store = createGameStore({ mode: 'humanVsHuman' })
     store.getState().vm.playMove(pos(7, 7), pos(4, 7)) // 炮二平五
     const autoSave = makeAutoSave(store)
@@ -41,7 +41,8 @@ describe('自动保存/恢复状态机', () => {
 
     const saved = await repo.loadLatest('humanVsHuman')
     expect(saved).not.toBeNull()
-    expect(saved!.fen).toBe(store.getState().fen)
+    // DR-008：存档 fen 为本局起始 FEN（restore 据此重放重建整局）
+    expect(saved!.fen).toBe('rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1')
     expect(saved!.moves).toEqual([[7, 7, 4, 7]])
   })
 
@@ -97,7 +98,7 @@ describe('自动保存/恢复状态机', () => {
     expect(await repo.loadLatest('humanVsHuman')).toBeNull() // 已注销，不再保存
   })
 
-  it('restoreOrNewGame：有存档且 FEN 有效 → restored（恢复到存档局面）', async () => {
+  it('restoreOrNewGame：有存档且 FEN 有效 → restored（重放重建整局）', async () => {
     const source = createGameStore({ mode: 'humanVsHuman' })
     source.getState().vm.playMove(pos(7, 7), pos(4, 7))
     source.getState().vm.playMove(pos(7, 0), pos(6, 2))
@@ -108,12 +109,12 @@ describe('自动保存/恢复状态机', () => {
     const target = createGameStore({ mode: 'humanVsHuman' })
     const outcome = await restoreOrNewGame({ mode: 'humanVsHuman', vm: target.getState().vm, repo })
     expect(outcome).toBe('restored')
-    // 恢复到存档时的局面
+    // DR-008：以存档起始 FEN 重放重建整局——局面、历史均恢复到存档时点
     expect(target.getState().fen).toBe(source.getState().fen)
-    // 原版语义（board_vm.dart:87-132 + 02 §5）：replay 在"存档终局 FEN"之上逐手回放，
-    // 历史着法的源格在终局面大多为空 → 按"源格无子=脏记录"跳过，恢复后走法历史通常为空
-    // （悔棋自新着起可用）。1:1 保持，不"修复"原版行为。
-    expect(target.getState().moveHistory).toHaveLength(0)
+    expect(target.getState().moveHistory).toHaveLength(2)
+    // 恢复后悔棋可用（跨恢复点回退到开局）
+    target.getState().vm.undo()
+    expect(target.getState().moveHistory).toHaveLength(1)
   })
 
   it('恢复存档已分胜负（死局）→ 删存档并开新局（game_restore.dart:32-37）', async () => {

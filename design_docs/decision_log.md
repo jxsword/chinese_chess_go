@@ -67,6 +67,16 @@
 - 结论：A（含附带决策）。
 - 影响：08 §1/§2 的 Go 版落地形态（frontend/src/{app,features,llm,players,stores,packages,shared,api,shims}）、10 R9（用例随迁已验证）、M3/M4/M5/M6 各自替换 `@packages/*` 对应包时的前端改动面收敛于 src/api 与别名表。
 
+## DR-008 存档序列化语义：起始 FEN + 完整着法栈（2026-10-05）
+- 背景：M2 手测实机缺陷 F3——恢复存档后盘面被改写（黑车被"再走"覆盖马）、走法历史清空。根因：保存端 `serialize()` 存**当前（终局）局面 FEN**（Flutter `board_vm.dart:308-311` `state.fen`），而恢复端 `restore(fen, moves)`（`board_vm.dart:87-132`）以该 FEN 为基准重放着法栈——正常情形着法全部被"源格无子=脏记录"跳过（历史必清空、fenHistory 只剩 1 项），一旦某着法起点在终局盘面恰好有子即被误重放改写盘面。该缺陷 Flutter 原版即存在，Electron v1.0 逐字继承（gameVm.ts 与 Go M0 移植版逐字节一致），与 `restore` 自身设计意图（注释将"源格有子"视为常态）及 07 §3"restore（重放）｜逐手采集"、fenHistory 四收口（DR-006）矛盾。约束：不得破坏 07 §1.1 表结构；无已发布旧数据，无迁移负担。
+- 选项：
+  - A. 保持 1:1（不修）——优点：与原版/Electron 逐位一致；缺点：恢复可损坏盘面（实测 bug）、历史必清空、DR-006 的 M2 检查点（fenHistory 四收口）形同虚设，重复裁决在恢复后的对局中失去基础数据。代价：M3/M4 返工风险。弃。
+  - B. 保存端语义修复——`serialize()` 存**本局起始 FEN**（GameVm 新增起始局面记录：构造/newGame/newGameFromFen/restore 设定）+ 完整着法栈；restore 以起始 FEN 建盘逐手重放重建整局。优点：位置正确、历史完整重建、fenHistory 逐手采集（07 §3 设计意图成立）、跳脏语义回归本职（只跳真正的脏记录）、恢复后悔棋/续存自洽闭环。缺点：与原版/Electron 有意偏离（缺陷修复，08 §2 同级留档）；随迁 2 个用例按新语义改写（依据：restore 实现注释 + 07 §3）。代价：GameVm 一个字段 + 2 用例。
+  - C. 恢复端修复——忽略着法栈，直接以保存的终局 FEN 开局。优点：改动最小、位置正确；缺点：历史仍清空（悔棋不能跨恢复点）、fenHistory 丢失（破坏 DR-006）、07 §2"重放逐手重建"落空。弃。
+- 结论：B。
+- 理由：恢复的目的就是重建整局（07 §2"恢复时重放逐手重建"）；B 使保存/恢复两端语义对齐并让 DR-006 的 M2 检查点真正成立；A 违背设计文档且已实测为 bug；C 丢历史破坏重复治理。原版带此缺陷，Go 版按"有依据的原版缺陷修复"处理（先例：Electron 版修复原版"棋谱变新局"实机缺陷），跨语言行为差异在 KNOWN_ISSUES F3 与 07 §2 留档。
+- 影响：frontend/src/stores/gameVm.ts（起始 FEN 字段 + serialize）；gameVmFenHistory.spec.ts、autoSaveRestore.spec.ts 用例改写；07 §2/§3 修订；KNOWN_ISSUES F3；Go 侧 internal/storage 零改动（saved_games.fen 列语义文档化为"本局起始 FEN"）；恢复后死局清理（重放至终局判定）语义不变。
+
 ## 附：沿用 Electron 版不做重裁的决策清单
 
 
