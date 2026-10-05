@@ -109,6 +109,17 @@ function emptyToNull(v: string): string | null {
 
 export function createWailsApi(): WindowApi {
   const app = wailsApp()
+
+  // 生命周期补偿（08 §2）：Wails v2 后端无窗口 blur/minimize 事件——
+  // WebView 失焦即派发 blur 相位驱动 GameAutoSave（最小化在主流平台伴随失焦）；
+  // close/before-quit 相位由 Go 侧 OnBeforeClose 经 app:lifecycle 事件发出。
+  const lifecycleListeners = new Set<(e: AppLifecycleEvent) => void>()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('blur', () => {
+      for (const listener of [...lifecycleListeners]) listener({ phase: 'blur' })
+    })
+  }
+
   return {
     llm: {
       chat: (req) =>
@@ -165,7 +176,15 @@ export function createWailsApi(): WindowApi {
       write: (text: string) => app.ClipboardWrite(text)
     },
     app: {
-      onLifecycle: (listener) => eventsOn<AppLifecycleEvent>('app:lifecycle', listener)
+      onLifecycle: (listener) => {
+        // 双源订阅：Go 侧 app:lifecycle 事件 + 适配层本地 blur 派发（08 §2）
+        lifecycleListeners.add(listener)
+        const offGo = eventsOn<AppLifecycleEvent>('app:lifecycle', listener)
+        return () => {
+          lifecycleListeners.delete(listener)
+          offGo()
+        }
+      }
     }
   }
 }

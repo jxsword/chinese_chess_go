@@ -33,8 +33,9 @@ const (
 	SlotAssistant = "llm_config_assistant"
 )
 
-// 回退文件名（07 §4：<userData>/credentials.enc；0600 明文本就是回退的目的）。
-const credentialsFallbackFilename = "credentials.enc"
+// CredentialsFallbackFilename 回退文件名（07 §4：<userData>/credentials.enc；
+// 0600 明文本就是回退的目的）。
+const CredentialsFallbackFilename = "credentials.enc"
 
 // SlotConfig 单槽位凭据（07 §4 槽位 JSON；preset=使用预设名，自定义/缺省为空串）。
 type SlotConfig struct {

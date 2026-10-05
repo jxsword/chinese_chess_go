@@ -32,6 +32,9 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		// 生命周期收口（07 §2 映射表）：关闭/退出前广播 close/before-quit 相位，
+		// 驱动渲染层 GameAutoSave 离开保存后放行退出。
+		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},

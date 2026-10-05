@@ -123,22 +123,40 @@ const (
 	keyHumanVsLlmOpponent = llmSettingsPrefix + "humanVsLlmOpponentType"
 )
 
-// clampLLMSettings 对已知 llm_settings_* 键原地 clamp（05 §8 范围表）。
+// clampLLMSettings 对已存在的 llm_settings_* 键原地 clamp（05 §8 范围表）；
+// 缺省键不注入（electron-store 缺省是读取期虚拟值，不落盘也不进内存表）。
 // 红黑强度缺省回落 strengthBlend 原始值（可能越界，再 clamp），与 TS fromRaw 一致。
 func clampLLMSettings(data map[string]any) {
-	strengthBlendRaw := numberOr(data[keyStrengthBlend], 50)
-	data[keyTimeoutSeconds] = clampInt(numberOr(data[keyTimeoutSeconds], 60), 5, 600)
-	data[keyMaxAttempts] = clampInt(numberOr(data[keyMaxAttempts], 3), 1, 10)
-	data[keyFallbackIndex] = pickEnum(data[keyFallbackIndex], 2, 0)
-	data[keyIntervalSeconds] = clampInt(numberOr(data[keyIntervalSeconds], 1), 0, 60)
-	data[keyAdvisorModeIndex] = pickEnum(data[keyAdvisorModeIndex], 3, 1)
-	data[keyStrengthBlend] = clampInt(strengthBlendRaw, 0, 100)
-	data[keyAdvisorDifficulty] = clampInt(numberOr(data[keyAdvisorDifficulty], 5), 1, 5)
-	data[keyRedStrengthBlend] = clampInt(numberOr(data[keyRedStrengthBlend], strengthBlendRaw), 0, 100)
-	data[keyBlackStrengthBlend] = clampInt(numberOr(data[keyBlackStrengthBlend], strengthBlendRaw), 0, 100)
-	data[keyRedSideType] = pickEnum(data[keyRedSideType], 2, 0)
-	data[keyBlackSideType] = pickEnum(data[keyBlackSideType], 2, 0)
-	data[keyHumanVsLlmOpponent] = pickEnum(data[keyHumanVsLlmOpponent], 2, 0)
+	strengthRaw := 50
+	if v, ok := data[keyStrengthBlend]; ok {
+		strengthRaw = numberOr(v, 50)
+	}
+	clamp := func(key string, dflt, lo, hi int) {
+		if _, present := data[key]; present {
+			data[key] = clampInt(numberOr(data[key], dflt), lo, hi)
+		}
+	}
+	pick := func(key string, values, dflt int) {
+		if _, present := data[key]; present {
+			data[key] = pickEnum(data[key], values, dflt)
+		}
+	}
+	clamp(keyTimeoutSeconds, 60, 5, 600)
+	clamp(keyMaxAttempts, 3, 1, 10)
+	pick(keyFallbackIndex, 2, 0)
+	clamp(keyIntervalSeconds, 1, 0, 60)
+	pick(keyAdvisorModeIndex, 3, 1)
+	clamp(keyStrengthBlend, 50, 0, 100)
+	clamp(keyAdvisorDifficulty, 5, 1, 5)
+	if _, present := data[keyRedStrengthBlend]; present {
+		data[keyRedStrengthBlend] = clampInt(numberOr(data[keyRedStrengthBlend], strengthRaw), 0, 100)
+	}
+	if _, present := data[keyBlackStrengthBlend]; present {
+		data[keyBlackStrengthBlend] = clampInt(numberOr(data[keyBlackStrengthBlend], strengthRaw), 0, 100)
+	}
+	pick(keyRedSideType, 2, 0)
+	pick(keyBlackSideType, 2, 0)
+	pick(keyHumanVsLlmOpponent, 2, 0)
 }
 
 // numberOr 数值读取：有限数值 → 截断取整；否则默认值（TS intOr：Number.isFinite 判定）。

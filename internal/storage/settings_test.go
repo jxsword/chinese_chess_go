@@ -119,11 +119,12 @@ func TestSettingsClampOnLoad(t *testing.T) {
 	}
 }
 
-// 红黑强度缺省回落 strengthBlend 原始值再 clamp（与 TS fromRaw 一致）。
+// 红黑强度缺省回落 strengthBlend 原始值再 clamp（与 TS fromRaw 一致；
+// 缺省键不注入——electron-store 虚拟缺省语义，Get 返回 nil 由渲染层 fromRaw 兜底）。
 func TestSettingsStrengthBlendFallbackDefault(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, settingsFilename),
-		[]byte(`{"llm_settings_strengthBlend": 200, "llm_settings_timeoutSeconds": "abc"}`), 0o644); err != nil {
+		[]byte(`{"llm_settings_strengthBlend": 200, "llm_settings_redStrengthBlend": 300, "llm_settings_timeoutSeconds": "abc"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s, err := OpenSettings(dir)
@@ -131,23 +132,32 @@ func TestSettingsStrengthBlendFallbackDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := s.Get(keyRedStrengthBlend); got != 100 {
-		t.Fatalf("redStrengthBlend = %v, want 100（回落 strengthBlend=200 再 clamp）", got)
+		t.Fatalf("redStrengthBlend = %v, want 100（越界 clamp）", got)
+	}
+	if got := s.Get(keyBlackStrengthBlend); got != nil {
+		t.Fatalf("blackStrengthBlend = %v, want nil（缺省键不注入）", got)
+	}
+	if got := s.Get(keyStrengthBlend); got != 100 {
+		t.Fatalf("strengthBlend = %v, want 100", got)
 	}
 	if got := s.Get(keyTimeoutSeconds); got != 60 {
-		t.Fatalf("timeoutSeconds = %v, want 60（非数值回落默认）", got)
+		t.Fatalf("timeoutSeconds = %v, want 60（非数值回落该键默认）", got)
 	}
 
 	dir2 := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir2, settingsFilename),
-		[]byte(`{"llm_settings_strengthBlend": 30}`), 0o644); err != nil {
+		[]byte(`{"llm_settings_strengthBlend": 30, "llm_settings_blackStrengthBlend": 7.9}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s2, err := OpenSettings(dir2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s2.Get(keyBlackStrengthBlend); got != 30 {
-		t.Fatalf("blackStrengthBlend = %v, want 30（回落未 clamp 的 strengthBlend）", got)
+	if got := s2.Get(keyStrengthBlend); got != 30 {
+		t.Fatalf("strengthBlend = %v, want 30（范围内不动）", got)
+	}
+	if got := s2.Get(keyBlackStrengthBlend); got != 7 {
+		t.Fatalf("blackStrengthBlend = %v, want 7（范围内数值截断取整）", got)
 	}
 }
 

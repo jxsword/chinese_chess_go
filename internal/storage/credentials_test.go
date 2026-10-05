@@ -67,7 +67,7 @@ var (
 func newTestCredentials(t *testing.T, kr Keyring) (*Credentials, string) {
 	t.Helper()
 	dir := t.TempDir()
-	fallback := filepath.Join(dir, credentialsFallbackFilename)
+	fallback := filepath.Join(dir, CredentialsFallbackFilename)
 	return NewCredentials(kr, fallback), fallback
 }
 
@@ -244,7 +244,7 @@ func TestCredentialsPlainFallbackWhenKeyringUnavailable(t *testing.T) {
 
 func TestCredentialsKeyringPriorityOverFallback(t *testing.T) {
 	fallbackDir := t.TempDir()
-	fallback := filepath.Join(fallbackDir, credentialsFallbackFilename)
+	fallback := filepath.Join(fallbackDir, CredentialsFallbackFilename)
 	kr := newFakeKeyring(true) // 安全存储不可用
 	// 先明文保存
 	plainSvc := NewCredentials(kr, fallback)
@@ -340,7 +340,7 @@ func TestCredentialsMaskedKeyWithoutExisting(t *testing.T) {
 func TestCredentialsFallbackPlainReadKeyringPriority(t *testing.T) {
 	// keyring 不可用时读取回退文件；keyring 恢复后回读优先 keyring（不存在 → 回退文件兜底）
 	fallbackDir := t.TempDir()
-	fallback := filepath.Join(fallbackDir, credentialsFallbackFilename)
+	fallback := filepath.Join(fallbackDir, CredentialsFallbackFilename)
 	writer := NewCredentials(newFakeKeyring(true), fallback)
 	if _, err := writer.Set(SlotAssistant, testConfig); err != nil {
 		t.Fatal(err)
