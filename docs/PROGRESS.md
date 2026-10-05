@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**v1.0.0-rc1 已构建：M7 全部任务完成，tag v1.0.0-rc1 三平台 CI 全绿、Draft Release 挂 5 包待用户发布——M1~M6 用户已确认全部手测通过（2026-10-06，无 bug）**——T7.1~T7.3 全部落地（internal/engine/matchrunner.go：Electron 版 matchRunner.ts 逐行翻译，RunMatch 五结算路径/单手超时 5min/质量评估深度对齐口径/RunMatchSeries 红黑换边；cmd/eval 评估 CLI：4 profile + --suite 四档对比 + MatchReport JSON 落盘，DR-005 请求体恒关思维链有测试断言；打包链：release.yml 三平台矩阵 tag v* 触发 + nfpm deb + AppImage + tar.gz 兜底本地冒烟全过；前端 e2e Playwright 冒烟链路 1 passed）、两轮复审完成（语义一致性：03 §9/05 §9 逐项核对 + "09 §3.4" 坏引用勘误；缺陷扫描：铁律 grep 全过 + -race 全量绿，K34~K36 留档）、质量门全绿（gofmt 空/vet 0/go test -race 全量/前端 249 用例/tsc+eslint 0 错/E2E 绿）。全部任务完成：真实端点 --suite 四档报告分析达标（DoD #4：候选模式失误率 0%/0%、能力梯度与 Electron 版同构）+ tag v1.0.0-rc1 五轮 CI 迭代至全绿。手测清单见下方 M7 交付段。
+**v1.0 交付完成：M0~M7 全部里程碑通过用户验收，v1.0.0-rc1 已发布（2026-10-06 用户浏览器确认 Draft 产物后发布）**——T7.1~T7.3 全部落地（internal/engine/matchrunner.go：Electron 版 matchRunner.ts 逐行翻译，RunMatch 五结算路径/单手超时 5min/质量评估深度对齐口径/RunMatchSeries 红黑换边；cmd/eval 评估 CLI：4 profile + --suite 四档对比 + MatchReport JSON 落盘，DR-005 请求体恒关思维链有测试断言；打包链：release.yml 三平台矩阵 tag v* 触发 + nfpm deb + AppImage + tar.gz 兜底本地冒烟全过；前端 e2e Playwright 冒烟链路 1 passed）、两轮复审完成（语义一致性：03 §9/05 §9 逐项核对 + "09 §3.4" 坏引用勘误；缺陷扫描：铁律 grep 全过 + -race 全量绿，K34~K36 留档）、质量门全绿（gofmt 空/vet 0/go test -race 全量/前端 249 用例/tsc+eslint 0 错/E2E 绿）。全部任务完成：真实端点 --suite 四档报告分析达标（DoD #4：候选模式失误率 0%/0%、能力梯度与 Electron 版同构）+ tag v1.0.0-rc1 五轮 CI 迭代至全绿。手测清单见下方 M7 交付段。
 
 ## 里程碑总览
 
@@ -19,7 +19,7 @@
 | M4 LLM 全链路 | ✅+用户 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5；用户手测验收通过 2026-10-06） |
 | M5 语料 + 棋谱 | ✅+用户 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6；用户手测验收通过 2026-10-06） |
 | M6 工作室 + 求解器 + 识图 | ✅+用户 | | AND/OR 求解器 + 6 验证 FEN + 工作室三 Tab + 视觉识图（DR-005）+ 求解辅助 + 演示播放器（T6.1~T6.5；用户手测验收通过 2026-10-06） |
-| M7 评估 + 打包发布 | ✅+用户 | | cmd/eval MatchRunner（DR-005/011）+ 三平台 Release 链 + Playwright E2E（T7.1~T7.3）；真实端点 --suite 四档验证（DoD #4 达成）+ tag v1.0.0-rc1 CI 全绿 Draft Release 5 包（2026-10-06） |
+| M7 评估 + 打包发布 | ✅+用户 | | cmd/eval MatchRunner（DR-005/011）+ 三平台 Release 链 + Playwright E2E（T7.1~T7.3）；DoD 四条全达成，v1.0.0-rc1 已发布（2026-10-06 用户验收确认） |
 
 ## 变更日志
 
@@ -34,7 +34,7 @@
   - 第 2 轮暴露 release.yml 两处：①macOS dmg 步骤 .app 路径写死——wails bundle 取 wails.json name（chinese_chess_go.app）而非 outputfilename，改 glob；②Windows 无 makensis——wails v2.16 不自动下载 NSIS（nsis_installer.go:54 仅查 PATH），前置 choco install nsis（`fix(m7)` d6654ac）。
   - 第 3 轮暴露 choco 装后 makensis 仍不可见——安装器写的系统 PATH 对 job 启动后步骤不可见，显式 Add-Content GITHUB_PATH（`fix(m7)` 08ca62a）。第 3 轮 macOS/Linux 已绿。
   - 第 4 轮三平台全绿但 draft 不可查：gh 无 git 上下文 + tag ref 竞态产生 untagged-<hash> 占位 draft，且本地 fine-grained PAT（Contents 只读）不可见 draft/不能建 release/不能重跑 CI——release job 补 checkout + 创建后 gh release view 自校验（`fix(m7)` a3cd7db）。
-  - 第 5 轮终态全绿：Draft Release 自校验输出 5 资产名单（deb/AppImage/tar.gz/Setup.exe/dmg），tag CI 与 main CI 均 success。draft 在仓库 Releases 页（登录态）发布即 v1.0.0-rc1 正式生效。
+  - 第 5 轮终态全绿：Draft Release 自校验输出 5 资产名单（deb/AppImage/tar.gz/Setup.exe/dmg），tag CI 与 main CI 均 success。draft 在仓库 Releases 页（登录态）发布即 v1.0.0-rc1 正式生效——用户已浏览器确认全部产物并完成发布/验收（2026-10-06）：**v1.0 交付闭环，DoD 四条全达成**。
 - 验收期修复（`fix(m7)`，v1.0.0-rc1 首跑 CI 暴露）：**Windows 平台性测试差异两类**——①根包 newTestApp/TestLazyDaoOpenRetry 补 t.Cleanup 关闭 sqlite 句柄（Windows 不可删打开中的文件致 t.TempDir() RemoveAll 失败，09 §3 平台性教训，5 用例受累）；②凭据回退文件 0600 断言改非 Windows 才断言（Windows 无 POSIX 权限位、Stat 恒 0666，语义由 NTFS ACL 承载）；另**纠正 DR-010/K34 误判**：Windows runner 预装 MinGW、-race 可跑（M0 ci.yml 实证），release.yml 恢复全平台 `go test -race`（DR-012）。本地全量测试回归绿。
 - 收尾（`style(m7)` 9a0820b + `docs(m7)` 本提交）：两轮复审——第一轮语义一致性（03 §9/05 §9/10 §4-§5/11 §3 M7 表逐项核对；"09 §3.4" 坏引用勘误至 09 §2.2/§2.3）；第二轮缺陷扫描（铁律 #1/#4/#8/#10 grep 机检 + matchrunner goroutine 有界性 + 报告无 Key 泄漏 + -race 全量）；质量门全绿：gofmt 空输出、go vet 0、go test ./... -race 全量（含金标准对拍）、npm test:fe 249 用例、tsc+eslint 0 错、E2E 绿；KNOWN_ISSUES K34~K36 留档。
 
