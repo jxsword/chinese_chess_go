@@ -3,7 +3,7 @@
 中国象棋桌面应用——Flutter 版（ChineseChessUltra，五期全部交付）的 **Go 语言全栈重写**。
 前一版 Electron 实现见 `jxsword/chinese_chess_electron`（已交付 v1.0），其设计资产与金标准直接复用。
 
-> 当前状态：**v1.0 代码完成，验收中**——M0~M6 已全部通过用户手测验收，M7（评估 CLI + 三平台打包 + E2E）代码完成、质量门全绿，剩余真实端点评估与首个 tag CI 产包验证。全套设计文档见 [design_docs/](design_docs/)，逐里程碑进度与验收记录见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+> 当前状态：**v1.0.0-rc1 已构建**——M0~M7 全部里程碑交付，M0~M6 通过用户手测验收，tag `v1.0.0-rc1` 三平台 CI 矩阵（lint + go test -race + wails build）全绿，Draft Release 已挂 5 个安装包待发布。全套设计文档见 [design_docs/](design_docs/)，逐里程碑进度与验收记录见 [docs/PROGRESS.md](docs/PROGRESS.md)。
 
 ## 功能总览（对齐 Flutter/Electron 版全部功能）
 
@@ -101,7 +101,7 @@ go run ./cmd/eval -- --suite   # 能力评估 CLI（LLM_BASE_URL/LLM_MODEL/LLM_A
 | M4 | LLM 全链路（思维链强制关闭） | ✅ 用户验收通过 |
 | M5 | 语料 + 棋谱 | ✅ 用户验收通过 |
 | M6 | 工作室 + 求解器 + 识图 | ✅ 用户验收通过 |
-| M7 | 评估（MatchRunner）+ 三平台打包发布 | 🔵 代码完成、质量门全绿，验收中（余：真实端点 `--suite` 评估 + 首个 `v*` tag CI 三平台产包） |
+| M7 | 评估（MatchRunner）+ 三平台打包发布 | ✅ CI 全绿（tag `v1.0.0-rc1` Draft Release 已产 5 包，待发布） |
 
 ## 许可
 
