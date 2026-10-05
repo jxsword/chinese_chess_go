@@ -53,6 +53,8 @@ type App struct {
 	corpusDocumentsOverride string
 	// parserProgressOverride 测试注入的解析进度收集器（生产走 EventsEmit）。
 	parserProgressOverride func(done, total int)
+	// corpusProgressOverride 测试注入的下载进度收集器（生产走 EventsEmit）。
+	corpusProgressOverride func(received, total int64)
 }
 
 // NewApp 创建绑定层实例（Wails Bind 入口）。
@@ -297,10 +299,33 @@ func (a *App) SecureDelete(slot string) error {
 // 语料库（M5：扫描/条目/字节/PGN 索引，06 文档 §1/§4；下载器见 T5.5）
 // ---------------------------------------------------------------------------
 
-// CorpusDownload 语料下载；进度经事件 corpus:progress 回传（载荷含 requestID）。
+// CorpusDownload 语料下载；进度经事件 corpus:progress 回传（载荷含 requestId，
+// 06 §5）。targetDir 为空时按 用户设置>legacy>默认 解析；阻塞至下载解压结算
+// （对齐 Electron 版 ipc handler await 语义），失败整体清理。
 func (a *App) CorpusDownload(req map[string]any) error {
-	_ = req
-	return errMilestone("语料下载", "M5")
+	requestID, _ := req["requestId"].(string)
+	downloadURL, _ := req["url"].(string)
+	targetDir, _ := req["targetDir"].(string)
+	if targetDir == "" {
+		targetDir = a.corpusRoot("")
+	}
+	_, err := storage.DownloadCorpus(storage.DownloadCorpusOptions{
+		URL:       downloadURL,
+		TargetDir: targetDir,
+		OnProgress: func(received, total int64) {
+			if a.corpusProgressOverride != nil {
+				a.corpusProgressOverride(received, total)
+				return
+			}
+			if a.ctx == nil {
+				return
+			}
+			wailsruntime.EventsEmit(a.ctx, "corpus:progress", map[string]any{
+				"requestId": requestID, "received": received, "total": total,
+			})
+		},
+	})
+	return err
 }
 
 // corpusUserPathKey electron-store 的语料目录键（07 文档 §3 corpus.userPath）。

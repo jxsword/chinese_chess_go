@@ -203,3 +203,21 @@ func mkdirCorpusCategory(t *testing.T, root, category, sub, name string) string 
 
 // storage 引用保持（newTestApp 的 keyring 类型来自 storage）。
 var _ storage.Keyring = (*fakeKeyring)(nil)
+
+func TestCorpusDownloadBindingRejectsIllegalURLAndResolvesTarget(t *testing.T) {
+	// 下载入口：SSRF 门 + targetDir 空串回退语料根解析（进度事件经 override 收集）。
+	app := newTestApp(t, newFakeKeyring(false))
+	docs := t.TempDir()
+	app.corpusDocumentsOverride = docs
+	progress := make([][2]int64, 0)
+	app.corpusProgressOverride = func(received, total int64) {
+		progress = append(progress, [2]int64{received, total})
+	}
+	err := app.CorpusDownload(map[string]any{"requestId": "dl-1", "url": "ftp://example.com/x.zip", "targetDir": ""})
+	if err == nil || !strings.Contains(err.Error(), "下载地址不合法") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(progress) != 0 {
+		t.Fatal("SSRF 拒绝不应有进度")
+	}
+}
