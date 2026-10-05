@@ -213,7 +213,7 @@ func TestEvalOneGameAgainstMockEndpoint(t *testing.T) {
 	config := llm.LlmEndpointConfig{BaseURL: server.URL, APIKey: "sk-mock", Model: "mock-chess", Preset: ""}
 	transport := llm.NewStreamTransport(func() int { return 60 })
 
-	profiles := buildProfiles(config, transport, 50, func() engine.MoveSource { return chessAiSource(3) })
+	profiles := buildProfiles(config, transport, 50, func() engine.MoveSource { return chessAiSource(3) }, nil)
 	var build func() engine.MoveSource
 	for _, p := range profiles {
 		if p.name == "baseline-v1" {
@@ -224,7 +224,7 @@ func TestEvalOneGameAgainstMockEndpoint(t *testing.T) {
 		t.Fatal("baseline-v1 profile 缺失")
 	}
 
-	reports, err := matchVsEngine(t.Context(), build(), 1, 24, 4)
+	reports, err := matchVsEngine(t.Context(), build(), 1, 24, 4, "baseline-v1")
 	if err != nil {
 		t.Fatalf("matchVsEngine: %v", err)
 	}

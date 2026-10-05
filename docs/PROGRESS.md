@@ -47,7 +47,7 @@ LLM_BASE_URL=https://你的端点/v1 LLM_MODEL=你的模型 LLM_API_KEY=sk-xxx \
 # 单 profile 人机式对抗 2 局
 LLM_BASE_URL=... LLM_MODEL=... LLM_API_KEY=... go run ./cmd/eval -- --games 2 --profile hybrid-candidate
 ```
-- 验证：stdout JSON + `tmp/eval-report-*.json` 落盘；字段齐全（winner/endReason/plies/*TimeMs/*Fallbacks/*Blunders/evaluatedPlies/*Top3Hits|Misses/moves/llmSide）；hybrid-candidate/gate 的红侧（LLM 侧）Top-3 跟随显著优于 baseline-v1；全程模型思维链关闭（若端点后台可查关闭参数生效更佳）。Windows 侧预期报告与 Linux 同构（K34 仅影响 CI 内 -race，不影响产物）。
+- 验证：**stderr 逐手进度全程可见**（DR-011：`[profile·局N P## 红] 着法（耗时）⚠兜底` + `模型第 N/3 次尝试` + 终局摘要；stdout 仅最终 JSON）；报告落盘 `tmp/eval-report-*.json` 字段齐全；hybrid-candidate/gate 的红侧（LLM 侧）Top-3 跟随显著优于 baseline-v1；若 stderr 出现"⚠兜底"或多次"模型第 N/3 次尝试"，说明请求失败已降级内置 AI（检查端点/Key/模型名，该局统计不代表 LLM 水平）。全程模型思维链关闭（若端点后台可查关闭参数生效更佳）。Windows 侧预期报告与 Linux 同构（K34 仅影响 CI 内 -race，不影响产物）。
 - DoD #4 口径：候选/护航模式"失误率 ≈0%"与 Electron 版结论同数量级对比（统计口径见 K36：参谋 depth6 短名单 vs 评估 depth4 Top-3，miss 不恒 0 属预期）。
 
 B. 三平台安装包（首个 tag 触发 CI）：

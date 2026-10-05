@@ -118,3 +118,13 @@
 - 结论：A（按 10 §4 定案落地），Linux 构建按 CI 同口径 `-tags webkit2_41` + libwebkit2gtk-4.1-dev（webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，10 §3 R1' 缓解沿 ci.yml；启动提示词中 "libwebkit2gtk-4.0-dev" 为预置期旧口径）；Windows runner go test 退化无 -race（CGO 工具链缺失）。
 - 理由：全部工具在依赖白名单哲学内（不进 go.mod）；每平台选择其生态最短路；弃用项均记录可回溯。
 - 影响：.github/workflows/release.yml、build/nfpm.yaml、build/linux/{build-appimage.sh,desktop,512 图标}；10 §4 增落地注记；本地已冒烟 Linux 三产物 + 二进制启动（12.9s 构建）。
+
+## DR-011 eval CLI stderr 逐手进度输出：人读调试面，stdout 报告协议面零影响（2026-10-06）
+- 背景：T7.1 逐行翻译 Electron 版 eval.ts——该 CLI 全程静默，仅在全部对局结束后一次性输出报告。用户真实端点首跑 `--suite`（8 局 × 最多 120 半回合 × 每手 5~30 秒，总时长 1~3 小时）时"卡住"感强烈，且模型失败静默重试/降级内置 AI 完全不可见，只能事后从报告 Fallbacks 反推。
+- 选项：
+  - A. stderr 逐手进度（装饰器包装 MoveSource + OnAttempt 重试行）——优点：长跑可观测、失败/降级/超时当场可见；stdout JSON 逐字节不变（协议快照/对拍不受损）；internal/engine 纯包零改动（装饰器在 CLI 层）。缺点：与 eval.ts 出现一处工具层行为差异。代价：cmd/eval 约 90 行 + 测试调用点适配。采纳（用户拍板）。
+  - B. 保持静默（原版对齐）——优点：零偏差。缺点：黑盒长跑，降级只能事后推断。弃：用户体验代价高，且 stderr 本就是人读面不进协议。
+  - C. 进度写 stdout 与报告混流——优点：无需 stderr。缺点：破坏"stdout=机器可读报告"契约（脚本管道消费场景），弃。
+- 结论：A。实现：moveLogger 装饰器（开局头/逐手行含耗时+着法+⚠兜底标记/无着/失败截断 60 字/异常 + 对局内两座位共享 ply 计数）+ runLoggedMatch 终局摘要 + buildProfiles 增 OnAttempt 注入（"[profile] 模型第 N/3 次尝试"）+ suite 分档分隔条。单手超时路径逐手行可能迟到打印（Promise.race 败者语义），不影响报告。
+- 理由：stderr 为人类调试通道，不进入任何协议快照/金标准对拍面；MatchReport JSON、exit code、落盘格式全部不变（cmd/eval 测试与 mock 实跑复核逐字节一致）。
+- 影响：cmd/eval/main.go、main_test.go 调用点；PROGRESS 手测指引 A 项注记；decision_log DR-011。

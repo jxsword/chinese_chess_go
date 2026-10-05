@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jxsword/chinese_chess_go/internal/engine"
@@ -80,6 +81,71 @@ func (cliAdvisor) EvaluateMove(ctx context.Context, fen string, m rules.Move, de
 }
 
 // ---------------------------------------------------------------------------
+// stderr 逐手进度（DR-011，工具层增强：Electron 版 eval.ts 静默，长跑不可观测；
+// 仅写 stderr 人读面——stdout JSON 报告协议面逐字节不变，对拍/快照不受影响）
+// ---------------------------------------------------------------------------
+
+// iccs 着法坐标（"h7e7" 形态；与 engine.MatchReport movesIccs 同口径）。
+func iccs(m *rules.Move) string {
+	return fmt.Sprintf("%c%d%c%d", rune('a'+m.From.Col), m.From.Row, rune('a'+m.To.Col), m.To.Row)
+}
+
+// moveLogger 逐手进度装饰器：包装 MoveSource，每次 NextMove 结算后向 stderr
+// 打一行（含耗时、着法/失败形态、兜底标记）。对局内两座位共享同一 ply 计数器。
+// 注：单手超时路径下本行可能迟到打印（Promise.race 败者语义），不影响报告。
+type moveLogger struct {
+	inner engine.MoveSource
+	label string // 对局标签，如 "baseline-v1·局1/2"
+	seat  string // 座位名，如 "红"
+	ply   *atomic.Int64
+}
+
+func (l *moveLogger) DisplayName() string { return l.inner.DisplayName() }
+
+func (l *moveLogger) NextMove(ctx context.Context, b *rules.Board, history []rules.Move) (engine.MoveSourceResult, error) {
+	n := l.ply.Add(1)
+	start := time.Now()
+	res, err := l.inner.NextMove(ctx, b, history)
+	elapsed := time.Since(start).Milliseconds()
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "[%s P%02d %s] 异常：%v（%dms）\n", l.label, n, l.seat, err, elapsed)
+	case res.Status == engine.StatusOK && res.Move != nil:
+		marker := ""
+		if res.FromFallback {
+			marker = " ⚠兜底"
+		}
+		fmt.Fprintf(os.Stderr, "[%s P%02d %s] %s（%dms）%s\n", l.label, n, l.seat, iccs(res.Move), elapsed, marker)
+	case res.Status == engine.StatusNoLegalMove:
+		fmt.Fprintf(os.Stderr, "[%s P%02d %s] 无着（%dms）\n", l.label, n, l.seat, elapsed)
+	default:
+		note := res.Note
+		if len(note) > 60 {
+			note = note[:60] + "…"
+		}
+		fmt.Fprintf(os.Stderr, "[%s P%02d %s] 失败：%s（%dms）\n", l.label, n, l.seat, note, elapsed)
+	}
+	return res, err
+}
+
+// runLoggedMatch 带进度的一场对局：开局头 + 逐手行 + 终局摘要。
+func runLoggedMatch(ctx context.Context, red, black engine.MoveSource, label string, opts engine.MatchRunnerOptions) (engine.MatchReport, error) {
+	var ply atomic.Int64
+	redSeat := &moveLogger{inner: red, label: label, seat: "红", ply: &ply}
+	blackSeat := &moveLogger{inner: black, label: label, seat: "黑", ply: &ply}
+	fmt.Fprintf(os.Stderr, "[%s 开局] 红=%s 黑=%s · maxPlies=%d\n", label, red.DisplayName(), black.DisplayName(), opts.MaxPlies)
+	report, err := engine.RunMatch(ctx, redSeat, blackSeat, opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[%s 中断] %v\n", label, err)
+		return report, err
+	}
+	fmt.Fprintf(os.Stderr, "[%s 终局] winner=%s endReason=%s plies=%d 红耗时=%dms 黑耗时=%dms 兜底=红%d/黑%d 质量评估=%d手\n",
+		label, report.Winner, report.EndReason, report.Plies, report.RedTimeMs, report.BlackTimeMs,
+		report.RedFallbacks, report.BlackFallbacks, report.EvaluatedPlies)
+	return report, nil
+}
+
+// ---------------------------------------------------------------------------
 // profile 集（llm_match_runner.dart:41-59 的 1:1 同源移植）
 // ---------------------------------------------------------------------------
 
@@ -88,7 +154,12 @@ type profileEntry struct {
 	build func() engine.MoveSource
 }
 
-func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend int, builtinAi func() engine.MoveSource) []profileEntry {
+func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend int, builtinAi func() engine.MoveSource,
+	onAttempt func(profile string, attempt, totalAttempts int)) []profileEntry {
+	attemptCb := func(string, int, int) {}
+	if onAttempt != nil {
+		attemptCb = onAttempt
+	}
 	return []profileEntry{
 		{"baseline-v1", func() engine.MoveSource {
 			return llm.NewLlmPlayer(config, transport, llm.LlmPlayerOptions{
@@ -96,6 +167,7 @@ func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend 
 				MaxAttempts:     3,
 				Fallback:        llm.FallbackBuiltinAI,
 				BuiltinAiSource: builtinAi,
+				OnAttempt:       func(attempt, total int) { attemptCb("baseline-v1", attempt, total) },
 			}, llm.ChatClientOptions{})
 		}},
 		{"p0-prompt-v2", func() engine.MoveSource {
@@ -104,6 +176,7 @@ func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend 
 				MaxAttempts:     3,
 				Fallback:        llm.FallbackBuiltinAI,
 				BuiltinAiSource: builtinAi,
+				OnAttempt:       func(attempt, total int) { attemptCb("p0-prompt-v2", attempt, total) },
 			}, llm.ChatClientOptions{})
 		}},
 		{"hybrid-candidate", func() engine.MoveSource {
@@ -114,6 +187,7 @@ func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend 
 				MaxAttempts:       3,
 				Fallback:          llm.FallbackBuiltinAI,
 				BuiltinAiSource:   builtinAi,
+				OnAttempt:         func(attempt, total int) { attemptCb("hybrid-candidate", attempt, total) },
 			}, llm.ChatClientOptions{})
 		}},
 		{"hybrid-gate", func() engine.MoveSource {
@@ -124,6 +198,7 @@ func buildProfiles(config llm.LlmEndpointConfig, transport llm.Transport, blend 
 				MaxAttempts:       3,
 				Fallback:          llm.FallbackBuiltinAI,
 				BuiltinAiSource:   builtinAi,
+				OnAttempt:         func(attempt, total int) { attemptCb("hybrid-gate", attempt, total) },
 			}, llm.ChatClientOptions{})
 		}},
 	}
@@ -145,8 +220,9 @@ func reportToJson(r engine.MatchReport) map[string]any {
 }
 
 // matchVsEngine profile vs 内置 AI（难度 3）：红黑换边各一局，EvaluateQuality 开
-// （Dart _matchVsEngine）。source 单实例复用（eval.ts 同款）。
-func matchVsEngine(ctx context.Context, source engine.MoveSource, games, maxPlies, qualityDepth int) ([]map[string]any, error) {
+// （Dart _matchVsEngine）。source 单实例复用（eval.ts 同款）；label 为 stderr 进度
+// 前缀（DR-011）。
+func matchVsEngine(ctx context.Context, source engine.MoveSource, games, maxPlies, qualityDepth int, label string) ([]map[string]any, error) {
 	reports := make([]map[string]any, 0, games)
 	for i := 0; i < games; i++ {
 		// 红黑换边：偶数局 LLM 执红，奇数局执黑。
@@ -157,7 +233,7 @@ func matchVsEngine(ctx context.Context, source engine.MoveSource, games, maxPlie
 		} else {
 			red, black = chessAiSource(3), source
 		}
-		report, err := engine.RunMatch(ctx, red, black, engine.MatchRunnerOptions{
+		report, err := runLoggedMatch(ctx, red, black, fmt.Sprintf("%s·局%d/%d", label, i+1, games), engine.MatchRunnerOptions{
 			MaxPlies:        maxPlies,
 			EvaluateQuality: true,
 			QualityDepth:    qualityDepth,
@@ -260,15 +336,19 @@ func run(args []string) int {
 	}
 
 	transport := llm.NewStreamTransport(func() int { return llmTimeoutSeconds })
-	profiles := buildProfiles(config, transport, blend, func() engine.MoveSource { return chessAiSource(3) })
+	profiles := buildProfiles(config, transport, blend, func() engine.MoveSource { return chessAiSource(3) },
+		func(profile string, attempt, total int) {
+			fmt.Fprintf(os.Stderr, "[%s] 模型第 %d/%d 次尝试\n", profile, attempt, total)
+		})
 
 	report := evalReport{Games: games, MaxPlies: maxPlies}
 	ctx := context.Background()
 
 	if suite {
 		// 四档对比：每档以红/黑两视角各对抗内置 AI（难度 3）一局。
-		for _, p := range profiles {
-			reports, err := matchVsEngine(ctx, p.build(), 2, maxPlies, 4)
+		for k, p := range profiles {
+			fmt.Fprintf(os.Stderr, "==== [%d/4] %s ====\n", k+1, p.name)
+			reports, err := matchVsEngine(ctx, p.build(), 2, maxPlies, 4, p.name)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "对局中断：%v\n", err)
 				return 1
@@ -294,7 +374,7 @@ func run(args []string) int {
 		redName := stringArg(args, "--red", profileName)
 		blackName := stringArg(args, "--black", "chessai-3")
 		if redName == profileName && blackName == "chessai-3" {
-			reports, err := matchVsEngine(ctx, build(), games, maxPlies, 4)
+			reports, err := matchVsEngine(ctx, build(), games, maxPlies, 4, profileName)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "对局中断：%v\n", err)
 				return 1
@@ -318,7 +398,8 @@ func run(args []string) int {
 				if i%2 != 0 {
 					redSeat, blackSeat = blackBuild(), redBuild()
 				}
-				rep, err := engine.RunMatch(ctx, redSeat, blackSeat, engine.MatchRunnerOptions{MaxPlies: maxPlies})
+				rep, err := runLoggedMatch(ctx, redSeat, blackSeat, fmt.Sprintf("%s vs %s·局%d/%d", redName, blackName, i+1, games),
+					engine.MatchRunnerOptions{MaxPlies: maxPlies})
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "对局中断：%v\n", err)
 					return 1
