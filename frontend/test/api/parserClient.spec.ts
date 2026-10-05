@@ -126,3 +126,34 @@ describe('ParserClient（mock 后端）', () => {
     client.dispose()
   })
 })
+
+describe('parserClient Wails 传输（base64 字节契约）', () => {
+  it('parseBatch 经绑定：Uint8Array 编码为 base64 字符串后透传', async () => {
+    // 注入伪 window.go：记录收到的 files，按协议结果回包。
+    const seen: Array<{ name: string; source: string; bytes: unknown }> = []
+    const w = globalThis as unknown as { window?: Record<string, unknown>; go?: unknown }
+    const app = {
+      ParserParseBatch: async (_id: string, files: Array<{ name: string; source: string; bytes: unknown }>) => {
+        seen.push(...files)
+        return { puzzles: files.map((f) => ({ id: `xqf/t/${f.name}`, format: 'xqf' })) }
+      },
+      ParserCancel: async () => undefined
+    }
+    // node 环境无 window：parserClient 传输只读 window.go/window.runtime，注入普通对象。
+    const fakeWindow = { go: { main: { App: app } }, runtime: { EventsOn: () => () => undefined } }
+    w.window = fakeWindow
+    try {
+      const client = new ParserClient()
+      const files = makeFiles(2)
+      const result = (await client.parseBatch(files)) as { puzzles: unknown[] }
+      expect(seen).toHaveLength(2)
+      // bytes 已是 base64 字符串（Wails invoke JSON 序列化契约，api/binary.ts）。
+      expect(typeof seen[0]!.bytes).toBe('string')
+      expect(seen[0]!.bytes).toBe(btoa(String.fromCharCode(...files[0]!.bytes)))
+      expect(result.puzzles).toHaveLength(2)
+      client.dispose()
+    } finally {
+      delete w.window
+    }
+  })
+})

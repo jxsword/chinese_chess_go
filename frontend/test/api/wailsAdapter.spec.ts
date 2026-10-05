@@ -141,3 +141,23 @@ describe('wailsAdapter 生命周期双源（08 §2：Go 事件 + blur 补偿）'
     expect(seen).toEqual(['close', 'blur']) // 反注册后两源均不再派发
   })
 })
+
+describe('wailsAdapter corpus 字节承载（base64 双向契约，api/binary.ts）', () => {
+  beforeEach(clearWindow)
+  afterEach(clearWindow)
+
+  it('readFiles：Go []byte 的 JSON base64 字符串解码回 Uint8Array', async () => {
+    // 直接注入带 readFiles 实现的伪绑定（通用 Proxy 返回 {ok:true} 不适用于本通道）。
+    const app = {
+      CorpusReadFiles: async (paths: string[]) =>
+        paths.map((p) => ({ path: p, bytes: btoa(String.fromCharCode(0x58, 0x51, 0x0d)) }))
+    }
+    const w = globalThis as unknown as { window?: Record<string, unknown>; go?: unknown }
+    w.go = { main: { App: app } }
+    w.window!.go = w.go
+    const api = createWailsApi()
+    const files = await api.corpus.readFiles(['/a.xqf'])
+    expect(files[0]!.bytes).toBeInstanceOf(Uint8Array)
+    expect(Array.from(files[0]!.bytes)).toEqual([0x58, 0x51, 0x0d])
+  })
+})
