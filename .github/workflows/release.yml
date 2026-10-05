@@ -185,5 +185,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VER: ${{ github.ref_name }}
         run: |
-          gh release create "$VER" --draft --title "中国象棋 Ultra ${VER}" \
-            --generate-notes dist/*
+          # 本 job 仅 download-artifact 无 checkout（非 git 仓库）——显式 --repo。
+          gh release create "$VER" --repo ${{ github.repository }} --draft \
+            --title "中国象棋 Ultra ${VER}" --generate-notes dist/*
