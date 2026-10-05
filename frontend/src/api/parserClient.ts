@@ -36,7 +36,7 @@ interface PendingEntry {
 
 interface WailsWindow {
   window?: {
-    go?: { app: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } }
+    go?: { main: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } }
     runtime?: { EventsOn(name: string, cb: (...data: unknown[]) => void): () => void }
   }
 }
@@ -54,7 +54,7 @@ function createWailsParserTransport(): ParserTransport {
     })
   }
   const call = async (msg: ParserRequestMsg): Promise<void> => {
-    const bindings = (globalThis as unknown as WailsWindow).window?.go?.app?.App
+    const bindings = (globalThis as unknown as WailsWindow).window?.go?.main?.App
     if (bindings === undefined) {
       t.onmessage?.({ data: { id: msg.id, ok: false, error: 'Wails 绑定不存在（window.go）' } })
       return

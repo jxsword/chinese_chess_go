@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M2（对战页 + 存储）代码完成，待用户手测验收**——T2.1~T2.4 全部提交、两轮复审完成（P1×1 已修复，P2/P3 记 KNOWN_ISSUES K12~K16）、质量门全绿；按 11 §5 暂停等待手动验收。
+**M2（对战页 + 存储）代码完成，待用户复测**——T2.1~T2.4 全部提交、两轮复审完成（P1×1 已修复，P2/P3 记 KNOWN_ISSUES K12~K16）、质量门全绿；首轮手测发现 P0 缺陷 F2（绑定命名空间错误致桌面窗口静默走 mock），已修复并端到端取证，等待复测。
 
 ## 里程碑总览
 
@@ -37,6 +37,23 @@
 **性能实测**：无算法面；SQLite 内存库 18 用例 <0.05s（modernc 纯 Go 驱动，07 §1 量级足够）；引擎耗时自 M3 起记录。
 
 **下一里程碑**：M3（引擎 + L0/L1/L2）——本里程碑手测验收通过后，新会话逐字粘贴 11 §4.3 启动提示词。
+
+### 2026-10-05 M2 手测缺陷修复（F2 绑定命名空间，待复测）
+
+**手测反馈**：B 分享棋局剪贴板无记谱、自动/手动存档未落库（无 `~/Documents/chinese_chess_ultra_go.sqlite`）；C 设置切换后 `settings.json` 不存在（目录存在）。
+
+**根因（P0，F2）**：Wails v2 以绑定结构体所在 **Go 包名**挂载方法表（`window.wailsbindings={"main":{"App":{...}}}` → `window.go.main.App`）；M0 起探测与适配器/三客户端误用 `window.go.app.App`——恒 undefined，桌面窗口内 client.ts **静默回落 mock**：存档/设置/剪贴板全部走内存 mock（配置目录存在是 Go startup 建的，与前端走 mock 不矛盾）。F1（M0）的"外部浏览器回落 mock"观察与本次缺陷同根因，其修复（改探测 `.app.App`）实际把崩溃缺陷转为静默 mock，掩盖至今。
+
+**修复**（`fix(m2)`）：
+- `client.ts` 探测、`wailsAdapter.ts`、`engineClient.ts`、`solverClient.ts`、`parserClient.ts` 五处统一改为 `window.go.main.App`（对齐 wailsjs 生成物与 runtime.js 注入事实；08 §2 勘误同步）；
+- `app.go documentsDir` 在 `~/Documents` 缺失时创建（07 §1 存档路径落地，不再静默退回 $HOME）；
+- 回归用例：新增 `frontend/test/api/wailsAdapter.spec.ts` **5 用例**（main.App 命名空间下 db/store/secure/clipboard 载荷透传、旧 `app.App` 形态拒绝、无 window.go 抛错、生命周期双源接线）；Go 侧 `TestDocumentsDirCreatesMissingDocuments`。
+
+**端到端取证**（wails dev devserver + headless Chrome 真实绑定调用，与桌面窗口同管线）：命名空间 `["main"]` 命中；DbSaveGame → sqlite 落盘 `~/Documents/chinese_chess_ultra_go.sqlite` → DbLoadLatest 读回完整行；StoreSet → `~/.config/chinese_chess_ultra_go/settings.json` 写入；ClipboardWrite 成功（err=null）。测试数据已清理（存档行删除、开关复位）。
+
+**质量门**：`go test ./... -race` 全绿；前端 22 文件 **207 用例**（+5）全绿；tsc 0 error；eslint 0 error（3 warning 均为 M0 随迁文件历史项）。
+
+**复测指引**：重开 `wails dev -tags webkit2_41` → 双人页走数着后手动保存（toast"棋局已保存"）→ 确认 `~/Documents/chinese_chess_ultra_go.sqlite` 已生成 → 关闭重进恢复局面；设置弹窗切换自动保存 → `~/.config/chinese_chess_ultra_go/settings.json` 出现；分享棋局 → 剪贴板含中文记谱。其余 M2 手测清单（PROGRESS §手测指引 A 组）请一并复测。
 
 ## 手测指引（M2 待验收）
 

@@ -38,6 +38,7 @@
 
 | # | 级别 | 描述 | 修复 |
 |---|---|---|---|
-| F1 | P0 | api 适配器探测条件过宽：Wails 运行时先同步注入 `window.go = {}`（App 方法表异步经 SetBindings 填充），以 `window.go` 真值判定会在外部浏览器打开 devserver 时误选 wailsAdapter 并在创建期抛错白屏。 | `client.ts` 探测改为 `window.go?.app?.App !== undefined`；实测两路径：外部浏览器回落 mock 正常渲染；注入 fake 绑定后 wailsAdapter 全链路（DbLoadLatest/DbSaveGame 载荷形状）验证通过。 |
+| F1 | P0 | api 适配器探测条件过宽：Wails 运行时先同步注入 `window.go = {}`（App 方法表异步经 SetBindings 填充），以 `window.go` 真值判定会在外部浏览器打开 devserver 时误选 wailsAdapter 并在创建期抛错白屏。 | ~~`client.ts` 探测改为 `window.go?.app?.App !== undefined`~~（M2 勘误：该修复基于错误命名空间假设 `app.App`，实际把缺陷转为静默回落 mock，见 F2）。 |
 | K3 | P3 | 自动保存 `gameAutoSave.write()` 以 `void repo.saveGame(...)` 发即忘；wails 占位绑定 reject 时产生未处理 promise 拒绝（仅控制台噪音，UI 不受影响；Electron 版同型）。 | M2 已注销：db 通道接入真实存储（app.go DbSaveGame），占位拒绝噪音消解；存储真不可用时的 reject 仍保持错误可见（属正确行为面）。 |
 | P1' | P1 | 凭据服务无互斥：Wails 绑定方法并发进入时回退文件读改写竞态可丢槽位更新。 | T2.4 复审修复：Credentials 全路径加 sync.Mutex（合并路径 getRawLocked 复用锁内调用防死锁）+ 并发用例 -race 覆盖。 |
+| F2 | P0 | **绑定命名空间错误（M2 手测 B/C 缺陷根因）**：Wails v2 以绑定结构体所在 Go 包名挂载方法表（`window.wailsbindings={"main":{"App":{...}}}`），本项目为 `window.go.main.App`；M0 起探测与 wailsAdapter/engineClient/solverClient/parserClient 全部误用 `window.go.app.App`（恒 undefined）→ 桌面窗口内 client.ts 静默回落 mock——自动/手动存档不落库（无 sqlite 文件）、设置切换不写 settings.json、分享棋局剪贴板为 mock 空操作。M0 的"外部浏览器回落 mock"观察实为同一根因的表现（F1 的修复掩盖了它）。 | `client.ts` 探测、wailsAdapter、engine/solver/parser 三客户端统一改为 `main.App`（对齐 wailsjs 生成物与 runtime.js 注入事实）；documentsDir 在 ~/Documents 缺失时创建（07 §1 路径落地）。回归：新增 test/api/wailsAdapter.spec.ts 5 用例锁定命名空间契约与生命周期双源；端到端取证（devserver + 真实绑定调用）——DbSaveGame/DbLoadLatest 往返、settings.json 落盘、~/Documents/chinese_chess_ultra_go.sqlite 生成、ClipboardWrite 成功。 |

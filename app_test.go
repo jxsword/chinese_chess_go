@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -316,5 +317,21 @@ func TestLazyDaoOpenRetry(t *testing.T) {
 	}
 	if !reflect.DeepEqual(app.dao, dao) {
 		t.Fatal("应复用已打开连接")
+	}
+}
+
+// documentsDir 在 ~/Documents 缺失时创建（07 §1 存档落 Documents；WSL 默认无该目录）。
+func TestDocumentsDirCreatesMissingDocuments(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)        // linux/darwin
+	t.Setenv("USERPROFILE", tmpHome) // windows
+	got := documentsDir()
+	want := filepath.Join(tmpHome, "Documents")
+	if got != want {
+		t.Fatalf("documentsDir = %q, want %q", got, want)
+	}
+	info, err := os.Stat(want)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("~/Documents 未创建: %v", err)
 	}
 }

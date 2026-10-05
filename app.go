@@ -73,18 +73,19 @@ func (a *App) initServices(userDataDir, daoPath string, kr storage.Keyring) {
 	a.credentials = storage.NewCredentials(kr, filepath.Join(userDataDir, storage.CredentialsFallbackFilename))
 }
 
-// documentsDir 文档目录（对齐 Electron app.getPath('documents') 语义）；
-// 无 Documents 目录时退回主目录。
+// documentsDir 文档目录（对齐 Electron app.getPath('documents') 语义，07 §1：
+// 存档落在 <Documents>/chinese_chess_ultra_go.sqlite）。WSL 默认无 ~/Documents，
+// 此处创建之（用户可见的标准位置）；创建失败退回主目录。
 func documentsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "."
 	}
 	docs := filepath.Join(home, "Documents")
-	if info, statErr := os.Stat(docs); statErr == nil && info.IsDir() {
-		return docs
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		return home
 	}
-	return home
+	return docs
 }
 
 // getDao 懒打开数据库（07 §1）：首次调用建库；失败不缓存，下次调用重试

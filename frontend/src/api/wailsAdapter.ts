@@ -26,12 +26,14 @@ import type {
 import type { WindowApi } from '@shared/ipc/api'
 
 // wailsAdapter（Go 版 08 文档 §2；通道映射 00 文档 §3.2）：
-//   invoke → window.go.app.App.Xxx(...)；事件 → window.runtime.EventsOn（返回反注册函数）。
+//   invoke → window.go.main.App.Xxx(...)；事件 → window.runtime.EventsOn（返回反注册函数）。
+//   【命名空间 = Go 包名】Wails v2 以绑定结构体所在包名（package main）挂载绑定方法表
+//   （window.wailsbindings = {"main":{"App":{...}}}，wailsjs 生成物同口径）。
 // requestId 过滤逻辑从 Electron 版 ipc/client 平移到各消费方（llmTransport / *Client），
 // 本适配器只做「通道名 + 载荷」的同构映射，不实现领域逻辑。
 //
 // window.go / window.runtime 为 Wails v2 注入的全局（桌面 WebView 内必然存在；
-// client.ts 已探测 window.go 后才构造本适配器）。这里做最小类型声明，不 import
+// client.ts 已探测 window.go.main.App 后才构造本适配器）。这里做最小类型声明，不 import
 // 生成物 frontend/wailsjs（避免类型检查依赖 wails 生成时机）。
 
 interface WailsApp {
@@ -84,9 +86,9 @@ interface WailsRuntime {
 }
 
 function wailsApp(): WailsApp {
-  const w = globalThis as unknown as { window?: { go?: { app: { App: WailsApp } } } }
-  const app = w.window?.go?.app?.App
-  if (app === undefined) throw new Error('Wails 绑定不存在（window.go）——wailsAdapter 只能在桌面 WebView 内使用')
+  const w = globalThis as unknown as { window?: { go?: { main?: { App?: WailsApp } } } }
+  const app = w.window?.go?.main?.App
+  if (app === undefined) throw new Error('Wails 绑定不存在（window.go.main.App）——wailsAdapter 只能在桌面 WebView 内使用')
   return app
 }
 

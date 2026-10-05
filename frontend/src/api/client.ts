@@ -14,13 +14,16 @@ declare global {
 }
 
 function hasWailsBindings(): boolean {
-  // 必须探测到 App 方法表（go.app.App），而非仅 window.go：
-  // Wails 运行时先同步注入 window.go = {}，App 方法表经 SetBindings 稍后填充；
-  // 桌面 WebView 内 window.wailsbindings 内联于页面、SetBindings 在模块求值前同步完成，
-  // 故首次解析时必然就绪；而 wails devserver 在外部浏览器打开时只有空 {}（无 wailsbindings），
-  // 按 mock 处理（与 Electron 版 dev:web 行为一致）。
-  const w = globalThis as unknown as { window?: { go?: { app?: { App?: unknown } } } }
-  return w?.window?.go?.app?.App !== undefined
+  // 必须探测到 App 方法表，且命名空间 = Go 包名（Wails v2 以绑定结构体所在包名
+  // 作为 window.go 下的命名空间——本项目绑定在 package main，故为 window.go.main.App；
+  // wailsjs 生成物 frontend/wailsjs/go/main/App.js 同口径）。
+  // runtime.js（assetserver 注入页首、先于 module 脚本执行）从内联 window.wailsbindings
+  // 同步 SetBindings，故首次解析时必然就绪；纯浏览器 dev:web（vite 直连，无 wails
+  // devserver）与 Node 测试环境无 window.go，按 mock 处理（与 Electron 版 dev:web 一致）。
+  // 【勘误 M2：曾探测 go.app.App——恒 undefined，桌面窗口静默回落 mock，
+  // 存档/设置/剪贴板全部走内存 mock（KNOWN_ISSUES F2）】
+  const w = globalThis as unknown as { window?: { go?: { main?: { App?: unknown } } } }
+  return w?.window?.go?.main?.App !== undefined
 }
 
 function resolveApi(): WindowApi {

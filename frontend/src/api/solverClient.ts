@@ -32,11 +32,11 @@ export interface SolverTransport {
 export type SolverBackend = 'wails' | 'mock'
 
 interface WailsWindow {
-  window?: { go?: { app: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } } }
+  window?: { go?: { main: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } } }
 }
 
 function wailsApp(): Record<string, (...args: unknown[]) => Promise<unknown>> {
-  const app = (globalThis as unknown as WailsWindow).window?.go?.app?.App
+  const app = (globalThis as unknown as WailsWindow).window?.go?.main?.App
   if (app === undefined) throw new Error('Wails 绑定不存在（window.go）')
   return app
 }
