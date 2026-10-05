@@ -5,7 +5,8 @@
  * 摆放即时校验（九宫/士象斜线田字/兵卒底线/数量上限）逐条对齐 board_setup_rules.dart；
  * 识图结果载入棋盘后必须人工核对才可求解（05 文档 §7 管线尾段）；
  * 求解完成后（含无解/超时）三种结论全部自动入库为棋谱（04 文档 §7 状态机）。
- * 求解在 solver.worker 内运行（04 §2），进度弹窗不可误关（TC-SOL-007）。
+ * 求解在 solver.worker 内运行（04 §2），进度为非阻塞悬浮条（GUI 优化：不遮挡
+ * 棋盘、无关闭入口不可误关——TC-SOL-007 语义保留，Go 版偏离原版模态弹窗）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -317,6 +318,7 @@ export function EndgameStudioPage(): React.JSX.Element {
   }
 
   const startSolve = (): void => {
+    if (solving) return // 非阻塞进度条下防重复发起（GUI 优化，用户验收期请求）
     if (problems.length > 0) {
       showToast(problems.join('；'))
       return
@@ -639,11 +641,28 @@ export function EndgameStudioPage(): React.JSX.Element {
       )}
 
       {solving && (
-        <div className="cc-dialog-mask" data-testid="solve-progress">
-          <div className="cc-dialog" role="alertdialog" aria-modal="true">
-            <div className="cc-dialog-title">求解中…</div>
-            <div className="cc-dialog-content">已用时 {solveElapsed.toFixed(1)}s</div>
-          </div>
+        // 非阻塞悬浮进度条（GUI 优化，用户验收期请求）：不遮罩、pointer-events 关闭，
+        // 求解期间棋盘完整可见可操作；无关闭入口（TC-SOL-007"不可误关"语义保留），
+        // 重复发起由 startSolve 守卫拦截；求解结束自动消失。
+        <div
+          data-testid="solve-progress"
+          role="status"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#322f2b',
+            color: '#fff',
+            padding: '10px 18px',
+            borderRadius: 8,
+            fontSize: 14,
+            zIndex: 120,
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.3)',
+            pointerEvents: 'none'
+          }}
+        >
+          求解中… 已用时 {solveElapsed.toFixed(1)}s
         </div>
       )}
 
@@ -686,7 +705,30 @@ function SolveResultSheet({
         aria-modal="true"
         style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 640, margin: '0 auto', maxHeight: '72vh', overflowY: 'auto' }}
       >
-        <div className="cc-dialog-title">{statusText}</div>
+        {/* 关闭按钮置顶（GUI 优化，用户验收期请求）：解法多时无需滚动到底即可关闭；
+            负 margin 抵消 .cc-dialog 内边距使头部铺满并盖住滚过的内容。 */}
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+            margin: '-20px -20px 12px',
+            padding: '12px 12px 10px 20px',
+            background: '#fff',
+            borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 12
+          }}
+        >
+          <div className="cc-dialog-title" style={{ margin: 0 }}>
+            {statusText}
+          </div>
+          <button type="button" className="cc-btn" aria-label="关闭" data-testid="solve-result-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
         <div className="cc-dialog-content">
           <div style={{ fontSize: 12 }}>
             用时 {(result.elapsed / 1000).toFixed(1)}s，已保存到棋谱库{recordId === null ? '失败' : ''}
@@ -707,7 +749,7 @@ function SolveResultSheet({
           ))}
         </div>
         <div className="cc-dialog-actions">
-          <button type="button" className="cc-btn" onClick={onClose} data-testid="solve-result-close">
+          <button type="button" className="cc-btn" onClick={onClose}>
             关闭
           </button>
         </div>

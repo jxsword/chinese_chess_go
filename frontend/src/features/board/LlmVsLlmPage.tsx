@@ -623,7 +623,12 @@ export function LlmVsLlmPage(): React.JSX.Element {
               )}
             </div>
           )}
-          <div className="cc-button-row">
+          {/* 立即保存粘性置底（GUI 优化，用户验收期请求）：面板滚动时按钮恒可见，
+              无需滑到底；背景遮住滚过的内容。 */}
+          <div
+            className="cc-button-row"
+            style={{ position: 'sticky', bottom: 0, zIndex: 1, padding: '8px 0', background: 'var(--cc-surface)' }}
+          >
             <button
               type="button"
               className="cc-btn"
