@@ -573,3 +573,54 @@ func TestExcerpt(t *testing.T) {
 		t.Fatalf("应截 160 字符，实际 %d", n)
 	}
 }
+
+func TestProxyIdleResetPerChunkNoNewline(t *testing.T) {
+	// 复审修复回归（R1-P3b）：空闲计时器按"块"重置而非按完整行——
+	// 持续到达但不带换行的半行流不误触空闲超时（对齐 llm-proxy.ts:179-195）。
+	server := StartMockSseServer(func(_ MockSseRequest, api MockSseAPI) {
+		// 每段 80ms、共 6 段 ≈ 480ms > 空闲 150ms——若按"行"重置必然误判。
+		for i := 0; i < 6; i++ {
+			sleep(80)
+			api.Write(fmt.Sprintf(`{"choices":[{"delta":{"content":"段%d",`, i))
+		}
+		api.Write("}}]}\n\n") // 补全最后一行
+		api.Write(SSEData("[DONE]"))
+		api.End()
+	})
+	defer server.Close()
+
+	transport := NewStreamTransport(func() int { return 60 })
+	c := &collector{}
+	err := transport.ChatWithOptions(t.Context(), chatReq(server.URL, "{}"), handlersFrom(c),
+		StreamOptions{IdleTimeout: 150 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("Chat err = %v", err)
+	}
+	if errs := c.allErrors(); len(errs) != 0 {
+		t.Fatalf("半行慢流不应触发空闲超时：%v", errs)
+	}
+	if len(c.allDone()) != 1 {
+		t.Fatalf("应正常结算 done：%v", c.allDone())
+	}
+}
+
+func TestProxyEOFResidualHalfLineDropped(t *testing.T) {
+	// 复审修复回归（R1-P3c）：流自然结束（无 [DONE]、末行无 \n）时残留
+	// 半行丢弃（对齐 llm-proxy.ts:196-198——以已结算行的累积内容为准）。
+	server := StartMockSseServer(func(_ MockSseRequest, api MockSseAPI) {
+		api.Write(SSEData(`{"choices":[{"delta":{"content":"着法: b2-e2"}}]}`))
+		api.Write(`data: {"choices":[{"del`) // 残留半行，无换行直接 EOF
+		api.End()
+	})
+	defer server.Close()
+
+	transport := NewStreamTransport(func() int { return 60 })
+	c := &collector{}
+	_ = transport.Chat(t.Context(), chatReq(server.URL, "{}"), handlersFrom(c))
+	if errs := c.allErrors(); len(errs) != 0 {
+		t.Fatalf("不应有错误：%v", errs)
+	}
+	if done := c.allDone(); len(done) != 1 || done[0] != "着法: b2-e2" {
+		t.Fatalf("残留半行应丢弃，done = %v", done)
+	}
+}

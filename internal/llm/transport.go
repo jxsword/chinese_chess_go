@@ -15,7 +15,7 @@ package llm
 // 禁止 import Wails / frontend。
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -215,50 +215,80 @@ func (t *StreamTransport) ChatWithOptions(ctx context.Context, req ChatRequest, 
 	defer resp.Body.Close()
 
 	assembler := &SseAssembler{}
-	// bufio.Scanner 按行读：半行跨 TCP 分包由 scanner 缓冲重组；
-	// Buffer 上限调大（4MB）防超长行截断（05 §3.2）。
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for scanner.Scan() {
-		t.mu.Lock()
-		blocked := call.settled || call.cancelled
-		t.mu.Unlock()
-		if blocked {
-			return callCtx.Err()
+	// 逐块读取 + 自切行（结构对齐 llm-proxy.ts:179-195）：
+	//   buffer += chunk；按 \n 切出完整行逐行处理；
+	//   每收到一块 → 重置空闲计时器（不是每行——持续吐字不带换行不误判）；
+	//   EOF 时残留半行丢弃（对齐 :196-198），以已累积内容结算。
+	// 半行跨 TCP 分包由 buf 拼接重组；行长无上限（对齐 TS string 累积，05 §3.2）。
+	buf := make([]byte, 0, 64*1024)
+	tmp := make([]byte, 32*1024)
+	for {
+		n, rerr := resp.Body.Read(tmp)
+		if n > 0 {
+			resetIdle() // 每收到一块 → 重置空闲计时器（05 §3.2）
+			buf = append(buf, tmp[:n]...)
+			for {
+				idx := bytes.IndexByte(buf, '\n')
+				if idx < 0 {
+					break
+				}
+				// 先拷贝再挪移：line 与 buf 同底层数组，直接 append(buf[:0],…)
+				// 会覆盖 line 数据（实测 chunk 全部损坏）。
+				line := trimEOL(append([]byte(nil), buf[:idx]...))
+				buf = append(buf[:0], buf[idx+1:]...)
+				t.mu.Lock()
+				blocked := call.settled || call.cancelled
+				t.mu.Unlock()
+				if blocked {
+					return callCtx.Err()
+				}
+				result, herr := assembler.HandleLine(string(line))
+				if herr != nil {
+					fail(herr.Error())
+					return nil
+				}
+				t.mu.Lock()
+				blocked = call.settled || call.cancelled
+				t.mu.Unlock()
+				if blocked {
+					return callCtx.Err()
+				}
+				if result.Delta != nil && handlers.OnChunk != nil {
+					handlers.OnChunk(*result.Delta)
+				}
+				if result.Ended {
+					succeed(assembler.PickAnswer())
+					return nil
+				}
+			}
 		}
-		result, herr := assembler.HandleLine(scanner.Text())
-		if herr != nil {
-			fail(herr.Error())
+		if errors.Is(rerr, io.EOF) {
+			break // 残留半行丢弃，流自然结束
+		}
+		if rerr != nil {
+			t.mu.Lock()
+			blocked := call.settled || call.cancelled
+			t.mu.Unlock()
+			if blocked {
+				return callCtx.Err()
+			}
+			fail("连接中断：" + rerr.Error())
 			return nil
 		}
-		t.mu.Lock()
-		blocked = call.settled || call.cancelled
-		t.mu.Unlock()
-		if blocked {
-			return callCtx.Err()
-		}
-		if result.Delta != nil && handlers.OnChunk != nil {
-			handlers.OnChunk(*result.Delta)
-		}
-		if result.Ended {
-			succeed(assembler.PickAnswer())
-			return nil
-		}
-		resetIdle() // 每收到一块 → 重置空闲计时器（05 §3.2）
 	}
-	if serr := scanner.Err(); serr != nil {
-		t.mu.Lock()
-		blocked := call.settled || call.cancelled
-		t.mu.Unlock()
-		if blocked {
-			return callCtx.Err()
-		}
-		fail("连接中断：" + serr.Error())
-		return nil
-	}
-	// 流自然结束（部分端点不发 [DONE]）：以已累积内容结算。
+	// 流自然结束：以已累积内容结算。
 	succeed(assembler.PickAnswer())
 	return nil
+}
+
+// trimEOL 去掉行尾 \n 与 \r\n（TS 版按 indexOf('\n') 切分后不额外剥 \r，
+// 但 SseAssembler 的 TrimSpace 会吃掉行尾空白，两者行为一致；此处剥 \r 仅
+// 为减少一次拷贝前的字节量）。
+func trimEOL(line []byte) []byte {
+	for len(line) > 0 && (line[len(line)-1] == '\n' || line[len(line)-1] == '\r') {
+		line = line[:len(line)-1]
+	}
+	return line
 }
 
 // Cancel 取消在途请求（幂等）。取消后不再有任何事件（迟到丢弃由状态位收口）。
@@ -309,9 +339,10 @@ func stopTimers(call *streamCall) {
 	}
 }
 
-// safeReadBody 响应体安全读取：超长截断由 excerpt 负责，这里仅防御流读取异常。
+// safeReadBody 响应体安全读取：超长截断由 excerpt 负责（160 字符），
+// 读取上限 2MB 纯防御（Go 版增强：TS response.text() 无上限）。
 func safeReadBody(resp *http.Response) string {
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 	if err != nil {
 		return ""
 	}
@@ -361,6 +392,8 @@ func NewProxy(options ProxyOptions) *Proxy {
 
 // ActiveCount 在途请求数（测试观察用）。
 func (p *Proxy) ActiveCount() int {
+	p.transport.mu.Lock()
+	defer p.transport.mu.Unlock()
 	return len(p.transport.active)
 }
 

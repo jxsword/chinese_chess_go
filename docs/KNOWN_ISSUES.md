@@ -7,7 +7,7 @@
 
 | # | 级别 | 描述 | 处置计划 |
 |---|---|---|---|
-| K1 | P2 | **LLM 思维链 UI 开关与条件关闭参数与 DR-005 冲突**：随迁的 Electron 版 `@packages/llm/config.ts`/`vision.ts` 按 `disableThinking` 用户开关条件发送 `enable_thinking:false`，LLM 配置卡含「禁用思维链」UI 开关。M0 无真实 LLM 请求（占位绑定拒绝），无运行时暴露。 | M4 T4.2/T4.5：请求构造移入 `internal/llm/config.go` 恒发关闭参数（DR-005 预设映射），删除配置卡开关与 `disableThinking` 字段（07 §4 槽位 JSON 无该字段）。 |
+| K1 | P2 | **LLM 思维链 UI 开关与条件关闭参数与 DR-005 冲突**：随迁的 Electron 版 `@packages/llm/config.ts`/`vision.ts` 按 `disableThinking` 用户开关条件发送 `enable_thinking:false`，LLM 配置卡含「禁用思维链」UI 开关。M0 无真实 LLM 请求（占位绑定拒绝），无运行时暴露。 | ~~M4 T4.2/T4.5 处置~~ 已注销：`internal/llm/config.go` 构造层恒发关闭参数（DR-005 预设映射：GLM→`thinking:{type:disabled}`，其余→`enable_thinking:false` 兜底，无任何开关路径）；前端 `packages/llm/config.ts`/`vision.ts` 同映射恒发；配置卡开关删除、`LlmEndpointConfig` 改四字段 `{baseUrl,apiKey,model,preset}`；请求体快照测试双端锁定（internal/llm/config_test.go 九预设断言 + frontend dr005.spec）。 |
 | K2 | P3 | 桌面 bundle 约 630KB（min+gzip）含暂不执行的 TS 领域代码（`@packages/*` 随迁，DR-007 选项 A 已知代价）。 | M3/M4/M5/M6 逐包替换为 Go 绑定后从别名与依赖中移除。 |
 | K3 | P3 | 自动保存 `gameAutoSave.write()` 以 `void repo.saveGame(...)` 发即忘；wails 占位绑定 reject 时产生未处理 promise 拒绝（仅控制台噪音，UI 不受影响；Electron 版同型）。 | M2 接入真实存储后自然消解；如 M2 前需静默可在适配层吞错（不采纳——保持错误可见）。 |
 | K4 | P3 | `parser:progress` 事件名是 00 §3.2 未列出的同型扩展（对齐 `corpus:progress`）。 | M5 落地时如有更名，同步 `api/parserClient.ts` 与 Go 侧 EventsEmit。 |
@@ -28,7 +28,7 @@
 
 | # | 级别 | 描述 | 处置计划 |
 |---|---|---|---|
-| K12 | P3 | **凭据槽位契约面字段差（DR-005 消解面）**：Go `SecureGet/Set` 槽位 JSON 为 `{baseUrl, apiKey, model, preset}`（07 §4），随迁前端 `LlmEndpointConfig` 类型仍含 `disableThinking`、缺 `preset`——M2 仅接存储无人消费该面（双人页不用 secure 通道），`disableThinking` 被 json 丢弃、`SecureGet` 返回缺该字段（配置卡开关显示为关）。 | M4 T4.5 配置卡接线：删除思维链开关与 `disableThinking` 字段（铁律 #10/K1 同源）、引入 preset 选择；`@shared/ipc/types` 同步。 |
+| K12 | P3 | **凭据槽位契约面字段差（DR-005 消解面）**：Go `SecureGet/Set` 槽位 JSON 为 `{baseUrl, apiKey, model, preset}`（07 §4），随迁前端 `LlmEndpointConfig` 类型仍含 `disableThinking`、缺 `preset`——M2 仅接存储无人消费该面（双人页不用 secure 通道），`disableThinking` 被 json 丢弃、`SecureGet` 返回缺该字段（配置卡开关显示为关）。 | ~~M4 T4.5 配置卡接线~~ 已注销：与 K1 同批消解——前端类型改 `{baseUrl,apiKey,model,preset}` 并全部消费点改写（旧存档无 preset 字段时 presetFor 回退按 baseUrl 匹配、thinkingStyleFor 走兜底，向后兼容）；`@shared/ipc/types` 同步。 |
 | K13 | P3 | **Wails v2 无窗口 minimize/blur 后端事件**：07 §2 映射表的 Electron `win.on('blur')/('minimize')` 无 Go 等价物。适配层以 WebView `window.blur` 派发 `blur` 相位补偿（最小化在主流平台伴随失焦）；`close`/`before-quit` 由 OnBeforeClose 发出（有界等待 300ms best-effort 存档）。极平台最小化不伴随失焦时漏一次自动保存。 | 有路由卸载（dispose）/close/手动保存三重兜底，可接受；Wails v3 或后续版本提供窗口事件时补齐。 |
 | K14 | P3 | **parseMovesJson 非整数值丢弃**（db.ts 保留 `number[][]`，Go 侧仅收整数四元组）：TS 保留的 1.5 等行在 restore 必被跳脏跳过，净效果一致（db.go 注释留档）。 | 无需处置；跨语言审计点。 |
 | K15 | P3 | **settings clamp 边界差**：load 时 clamp 仅对已存在键生效（缺省键不注入内存表，`StoreGet` 返回 null 由渲染层 fromRaw 兜底——electron-store 虚拟缺省语义）；present 数值截断取整（7.9→7，TS fromRaw 保留 7.9 后由渲染层再 clamp）。仅手改 settings.json 场景可观测。 | 无需处置；M4 Go 侧消费者（代理空闲超时）注意 nil→默认兜底。 |
@@ -40,6 +40,15 @@
 |---|---|---|---|
 | K17 | P3 | **Runner 同 id 并发在途注册表以后到者为准**：Submit 重写 cancels[id]，先到请求结算时 delete 会摘走后到的注册项，其后 Cancel(id) 对后到请求失效。requestId 全局唯一是 00 §3.2 调用方契约（前端 createRequestId UUID 工厂，页面 gameSeq 保证至多一个在途 AI 搜索），契约内不可达。 | 无需处置；如未来出现同 id 复用在途场景，Submit 改为拒绝重复 id（一行改动）。 |
 | K18 | P3 | **随机路径（难度 1/2 与 L2 候选洗牌）跨语言伪随机源不同**：TS `Math.random` vs Go `math/rand/v2`（自动播种）。randomness>0 时难度 1/2 的具体应手、L2 阈值内多候选时的具体换着，Go 与 TS/Dart 不逐位一致——原版同分随机即不保证复现（金标准对拍仅覆盖 randomness=0 路径）。 | 无需处置；行为面（随机取一）与阈值/候选集口径逐值一致，确定性测试以注入随机源锁定（avoidance_test）。 |
+
+## M4（LLM 全链路）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K19 | P3 | **构造器缺省语义差（TS `??` vs Go 零值兜底）**：`maxAttempts` 显式传 0 时 Go 兜底为 3，TS `?? 3` 仅对 undefined 兜底（显式 0 = 零次尝试直接降级）；`HybridLlmPlayer.strengthBlend` 反向——Go 不对 0 兜底（0 是合法"最严"档，缺省 50 由设置层 DEFAULT 保证），TS `?? 50` 同样仅 undefined 兜底。设置层 clamp（maxAttempts 1~10 / blend 0~100）使两差均不可达。 | 无需处置；M7 cmd/eval 直接构造时注意传入显式值。 |
+| K20 | P3 | **excerpt 按 rune 计数 vs TS 按 UTF-16 code unit**：HTTP≠200 错误体截 160 字符，BMP 内字符（含中文）两者逐位一致；错误体含非 BMP 字符（emoji 等）时截断长度可能差 1（Go 1 rune = TS 2 unit）。 | 无需处置；错误消息为人类可读文本，长度差不影响断言（现有用例以"≤160 字符 + 省略号"口径锁定）。 |
+| K21 | P3 | **流式 OnChunk 与取消结算的纳秒级 TOCTOU 窗口**：blocked 检查（锁内）与 OnChunk 回调（锁外）之间并发 Cancel 完成结算时，`Cancel()` 返回后仍可能收到一个 chunk。TS 版事件经 IPC 异步转发同型窗口天然存在；渲染层按 requestId 二次收口（00 §3.2 主语义）为设计第二道防线。 | 无需处置；锁内回调用户代码有死锁风险，不采纳收紧方案。 |
+| K22 | P3 | **chunk.error 消息内 JSON 键序差**：`流式响应错误: {…}` 的 JSON 序列化 Go（map 字母序）与 TS（对象插入序）键排列可能不同——前缀与 message 内容逐字一致，整体串仅键序差。 | 无需处置；测试以"含前缀 + 含 message"口径断言，不锁键序。 |
 
 ## 已修复（保留记录）
 

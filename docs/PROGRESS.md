@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M3（引擎 + L0/L1/L2 重复治理）代码完成，待用户手测**——T3.1~T3.5 全部提交（金标准对拍先全绿后开 L1/L2 层，顺序铁律 ✓）、两轮复审完成（翻译缺陷 2 处当场修复，P3×2 记 KNOWN_ISSUES K17/K18）、质量门全绿、性能门实测达标。人机对战页桌面模式已由 Go 引擎供手（浏览器 mock 模式仍走 TS 引擎内核）。
+**M4（LLM 全链路）代码完成，待用户手测**——T4.1~T4.5 全部提交（DR-005 恒发关闭参数双端锁定：Go 九预设快照断言 + 前端 dr005.spec；提示词/解析/注解/管线/参谋制逐字翻译，快照基准=Electron 版既有快照）、两轮复审完成（语义一致性 PASS：P2×2 引擎错误传播语义当场修复 + P3×3 顺手修复/留档；缺陷扫描 PASS：P2×1 修复 + P3×2 留档）、质量门全绿。真实端点手测（GLM/DeepSeek 各一整局）由用户执行。
 
 ## 里程碑总览
 
@@ -14,16 +14,36 @@
 | 文档集（首次提交） | ✅ | — | 00~11 全套 + AGENTS.md + DR-001~006 |
 | M0 工程骨架 | ✅+用户 | — | go.mod + Wails + frontend 移植 + CI（用户以启动 M1 验收通过） |
 | M1 规则内核 + L3 | ✅ | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5；用户以启动 M2 验收通过） |
-| M2 对战页 + 存储 | 🔵 代码完成，待手测 | — | sqlite DAO + 设置/凭据 + fenHistory 四收口 + 双人页裁决接线（T2.1~T2.4） |
-| M3 引擎 + L0/L1/L2 | 🔵 代码完成，待手测 | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5） |
-| M4 LLM 全链路 | ⬜ | | 恒关思维链 + 真实端点手测 |
+| M2 对战页 + 存储 | ✅ | — | sqlite DAO + 设置/凭据 + fenHistory 四收口 + 双人页裁决接线（T2.1~T2.4；用户以启动 M3 验收通过） |
+| M3 引擎 + L0/L1/L2 | ✅ | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5；用户以启动 M4 验收通过） |
+| M4 LLM 全链路 | 🔵 代码完成，待手测 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5） |
 | M5 语料 + 棋谱 | ⬜ | | |
 | M6 工作室 + 求解器 + 识图 | ⬜ | | |
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
 
-### 2026-10-05 M3 引擎 + L0/L1/L2 重复治理 交付（T3.1~T3.5，待手测）
+### 2026-10-05 M4 LLM 全链路 交付（T4.1~T4.5，待手测）
+
+**完成清单**（internal/llm 共 9 文件实现 + 8 测试文件，63 Go 用例 + 前端 214 用例全绿）
+- T4.1（commit `feat(m4)` e08ceb7，Decision: DR-005）：`internal/llm/config.go` 请求构造——**思维链关闭参数恒发、无任何开关路径**，按端点预设映射（智谱 GLM→`thinking:{type:"disabled"}`；DashScope/Qwen 与其余端点→`enable_thinking:false` 兜底；`ThinkingStyleFor` 按预设名解析，未知/自定义走兜底）；`LlmEndpointConfig` 四字段 `{baseUrl,apiKey,model,preset}`（无 disableThinking——07 §4）；requestUrl 去尾斜杠自动补 /chat/completions、掩码 Key 三态（空 Key 不带头/`****` 前缀走 AuthSlot/完整 Key 内联 Bearer）、测试连接最小请求、DR-012 空侧镜像。`transport.go` 替代 Electron main 进程 LlmProxy：net/http 流式 POST + 逐块读取自切行（半行跨 TCP 分包重组、行长无上限）、**空闲超时=块间最大间隔**（每收到一块重置，默认 60s clamp 5~600）、**总上限=空闲×4** 独立计时器、取消经 context（Cancel(requestID) 幂等、此后零事件）、HTTP≠200 截 160 字符（rune 计）+ AnnotateModelHint、五条错误文案逐字（空闲超时/总耗时/连接失败/连接中断/流式响应错误）+ Proxy（受理即返回/事件回发/authSlot 经凭据槽位注入真实鉴权）。测试：请求体快照（含九预设关闭参数断言）、SSE 重组逐行（双字段名 reasoning_content??reasoning）、mock SSE httptest 服务器（写已断开连接守卫）、传输层 20 场景（跨分包含中文多字节/计时器逐块重置/半行慢流不误判/EOF 残留丢弃/cancel 无迟到/HTTP 4xx5xx/并发隔离/authSlot 注入/测试连接）。
+- T4.2（commit `feat(m4)` 6b28256，铁律 #2）：prompt.go（systemV1/userV1/retryFeedback/systemV2/userV2/retryFeedbackV2/vetoFeedback/looksLikeRepetition/historyTextV2）/parser.go（MOVE_PATTERN/LABELED_PATTERN/normalizeReply 围栏剥离→零宽删除→小写→全角 U+FF01–FF5E 逐码位 −0xFEE0；多坐标对「着法:」标记后优先）/annotation.go（annotateMove/scoreBucket 30/100/250/600/annotatedWithBucket/asciiBoard）逐字翻译；**测试：30 条解析用例 + 提示词 v1/v2 全文逐字快照 + 初始局面 ASCII 全字快照**（快照基准=Electron 版既有快照，第一轮复审经脚本机械比对逐字一致）。
+- T4.3（commit `feat(m4)` 31ade69）：LlmPlayer 实现 engine.MoveSource——LlmChatClient（ChatOnce 取消注册表/掩码 authSlot/CancelCurrent 本地结算+通知传输）；五层过滤管线（SSE 重组→归一化→提取→decodeCell→**白名单精确字符串匹配**，铁律 #3）+ user 末尾追加反馈重试（无状态两消息协议整段重发）+ 降级链 builtinAi（note=…已由内置 AI 兜底走子+fromFallback）/resign（…按判负处理）；取消 ErrCanceled 原样上抛。测试：失败模式表 25 场景全绿。
+- T4.4（commit `feat(m4)` af727fd）：HybridLlmPlayer 参谋制——off（惰性单例委托纯 Prompt v2，delegateMu 互斥）/candidate（Top-K 短名单+分档清单）/gate（全量清单+否决权）；旋钮逐值 K=min(8,max(3,3+⌊blend/20⌋))、否决阈值=80+⌊3.2×clamp(blend,0,100)⌋、复评深度=depth−1、timeLimitMs 5000；**否决-再问-代走**：vetoFeedback 带分桶厘兵重问一次→二次通过/违抗→report.best 代走（fromFallback，**不走 resign 降级分支**——参谋职责）。测试：三模式 7 场景+否决两分支+旋钮边界+防御路径。
+- T4.5（commit `feat(m4)` 36eb471）：app.go LlmChat/LlmCancel/LlmTestConnection 替换占位（llm.Proxy 受理即返回 + llm:chunk/done/error 事件回发含 requestId + authSlot 注入 + 空闲超时接 llm_settings_timeoutSeconds）；前端 DR-005 预设映射（preset 字段引入、disableThinking 全删、LlmConfigCard 开关 UI 删除、vision 同映射恒发——K1/K12 注销）；绑定端到端 5 用例（mock SSE 全链路/取消无迟到/authSlot 注入/测试连接三态）+ dr005.spec 6 用例。
+
+**两轮复审（11 §6）**
+- 第一轮·语义一致性：PASS（P0/P1=0）——提示词中文字面量经脚本机械比对逐字一致；9 个检查面（prompt/parser/annotation/config/sse/transport/llmplayer/hybridplayer/前端映射）全部通过。缺陷：P2×2（HybridLlmPlayer 引擎参谋 findBestMoveEx/evaluateMove 非取消错误被吞为 noLegalMove/兜底链，TS 语义是异常传播→页面 onSideFailed）当场修复并加回归用例；P3×3（off 委托多发 OnAttempt 已修、空闲计时器按行重置已改按块、RE2 \s 缺 Unicode 空白已补显式字符类「着法〈全角空格〉:」回归）。
+- 第二轮·缺陷扫描：PASS（P0/P1=0）——P2×1（Proxy.ActiveCount 无锁读 active map）当场修复；P3×1（测试 sleep 等首块 CI 慢载假失败）改 deadline 轮询；P3×2（OnChunk TOCTOU 纳秒窗口/safeReadBody 无上限）前者留档 K21（TS 同型+渲染层收口），后者加 2MB LimitReader 防御。修复过程中连带发现并修复读取循环两处实现缺陷（ReadSlice 无换行不返回致重置失效；行切片与缓冲同底层数组被挪移覆盖）——半行慢流与 EOF 残留两用例锁定。
+- P3 留档：K19（构造器 `??` vs 零值兜底语义差，设置层 clamp 内不可达）/K20（excerpt rune vs UTF-16 计数，BMP 内一致）/K21/K22（chunk.error JSON 键序差）。
+
+**回归护栏（11 §6.3）**：铁律 grep 自检全过——#1 net/http 仅在 internal/llm/transport.go（铁律 #4 明文收口点，engine/rules/storage 零依赖）、#3 白名单精确匹配+页面 playMove 双保险、#4 对外 HTTP 零新增出口、#5 事件载荷全含 requestId、#8 Key 仅注入路径无消息拼接、#10 `enable_thinking` 全库仅 false 恒发、`disableThinking` 仅存于注释。
+
+**验证门**：`gofmt -l` 空 + `go vet ./...` 0 + `go test ./... -race` 全绿（internal/llm 63 用例含 mock SSE 计时器/取消全场景）+ 前端 tsc 0/eslint 0/vitest 214 全绿（含 dr005.spec 6 用例）。
+
+**下一里程碑**：M5（语料 + 棋谱）——本里程碑手测（含真实端点 GLM/DeepSeek 各一整局）通过后，新会话逐字粘贴 11 §4.6 启动提示词。
+
+### 2026-10-05 M3 引擎 + L0/L1/L2 重复治理 交付（T3.1~T3.5，已验收）
 
 **完成清单**（每子任务一 commit；①②对拍门先行、全绿后才进 ③④——顺序铁律 ✓）
 - 文档先行（随 T3.1 commit）：03 §4 勘误——键表形状 `[2][15][90]` 为首版起草残留的 TS 双表形状，按同句「uint64 单键」口径勘误为 `[15][90]uint64` + 补 PRNG 移位（Marsaglia 13/7/17）；§6.2 补「Difficulty 0=未设（Go 零值）即缺省 3」；§7 补 wire 缺省约定（前端 `?? 0` → Go 按 0=未设取缺省档）与协议层取消收口；§8 补 ChessAiPlayer fenHistory 引擎侧单源推导口径。
@@ -50,7 +70,7 @@
 
 **下一里程碑**：M4（LLM 全链路，恒关思维链）——本里程碑手测验收通过后，新会话逐字粘贴 11 §4.4 启动提示词。
 
-### 2026-10-05 M2 对战页 + 存储 交付（T2.1~T2.4，待手测）
+### 2026-10-05 M2 对战页 + 存储 交付（T2.1~T2.4，已验收）
 
 **完成清单**（每子任务一 commit）
 - T2.1（`feat(m2)`）：`internal/storage/db.go`——sqlite DAO 逐字段对照 Electron 版 `src/main/services/db.ts`：07 §1.1 两表 DDL **逐字段一致**（脚本比对 IDENTICAL）、迁移 V1（PRAGMA table_info → ALTER ADD COLUMN DEFAULT 'legacy'）、裸 upsert 标 'legacy'、按模式分桶 upsert、`ORDER BY updated_at DESC`/`created_at DESC, id DESC`、parseResult 非法串回 'draw'/parseSolveStatus 回 'none'、旧库 TEXT 时间戳兼容解析、game_records 解码链（decode→过滤脏行→re-encode，`p: r.p ?? ''` 保真）含 x:"" 存量修复；**gameDao.spec 全量 18 用例**移植为 Go 表驱动（saved_games 5 + 分模式 4 + 迁移 1 + 棋谱库 6 + 回归 2）。附 07 §1 文件名勘误：`chinese_chess_ultra_go.sqlite`（原文复制自 Electron 版，两应用共存不得共写同一库）。

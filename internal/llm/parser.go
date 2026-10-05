@@ -15,10 +15,12 @@ import (
 )
 
 // movePattern 坐标对：列字母 + 行数字 + 可选分隔符（含中文"到/至"与长破折号）。
-var movePattern = regexp.MustCompile(`([a-i])\s*(\d)\s*[-–—~到至]?\s*([a-i])\s*(\d)`)
+// 空白类显式列举 TS \s 全集（RE2 的 \s 缺 \v/\u00a0/\u3000 等 Unicode 空白，
+// 会导致「着法〈全角空格〉:」这类标记失配——第一轮复审 R1-P3d 对齐项）。
+var movePattern = regexp.MustCompile(`([a-i])[ \t\n\v\f\r\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]*(\d)[ \t\n\v\f\r\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]*[-–—~到至]?[ \t\n\v\f\r\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]*([a-i])[ \t\n\v\f\r\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]*(\d)`)
 
 // labeledPattern 「着法:」标记（允许冒号前空白；全角冒号已在归一化时转半角）。
-var labeledPattern = regexp.MustCompile(`着法\s*:`)
+var labeledPattern = regexp.MustCompile(`着法[ \t\n\v\f\r\x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}]*:`)
 
 // ExtractMove 返回归一化的 "b2-e2" 形式；无法解析返回 nil。
 //

@@ -163,12 +163,13 @@ func (h *HybridLlmPlayer) NextMove(ctx context.Context, board *rules.Board, hist
 		// LlmMoveSource(usePromptV2: true) 的 Dart 写法，此处惰性单例保取消语义）。
 		h.delegateMu.Lock()
 		if h.offDelegate == nil {
+			// 对齐 TS hybridPlayer.ts:127-137：off 委托不转发 onAttempt
+			//（off 模式无参谋进度语义，避免多发"第 N/M 次尝试"回调）。
 			h.offDelegate = NewLlmPlayer(h.client.config, h.client.transport, LlmPlayerOptions{
 				UsePromptV2:     true,
 				MaxAttempts:     h.maxAttempts,
 				Fallback:        h.options.Fallback,
 				BuiltinAiSource: h.options.BuiltinAiSource,
-				OnAttempt:       h.options.OnAttempt,
 			}, ChatClientOptions{AuthSlot: h.client.options.AuthSlot, NewID: h.client.options.NewID})
 		}
 		delegate := h.offDelegate
@@ -190,10 +191,12 @@ func (h *HybridLlmPlayer) nextMoveWithAdvisor(ctx context.Context, board *rules.
 	topK := ShortlistSize(h.strengthBlend)
 	report, err := h.advisor.FindBestMoveEx(ctx, fen, depth, topK, 5000)
 	if err != nil {
+		// 取消原样上抛；其余引擎错误同样上抛（对齐 TS hybridPlayer.ts:155
+		// await 拒绝传播 → 页面 onSideFailed("走子来源异常：…")，不吞为终局状态）。
 		if errors.Is(err, ErrCanceled) || ctx.Err() != nil {
 			return engine.MoveSourceResult{}, ErrCanceled
 		}
-		return engine.MoveSourceResult{Status: engine.StatusNoLegalMove}, nil
+		return engine.MoveSourceResult{}, err
 	}
 	if report == nil {
 		return engine.MoveSourceResult{Status: engine.StatusNoLegalMove}, nil
@@ -260,10 +263,11 @@ func (h *HybridLlmPlayer) nextMoveWithAdvisor(ctx context.Context, board *rules.
 		vetoDepth := depth - 1
 		vetoEvalCp, err = h.advisor.EvaluateMove(ctx, fen, *pick, vetoDepth)
 		if err != nil {
+			// 取消原样上抛；其余引擎错误上抛（对齐 TS hybridPlayer.ts:200 无捕获传播）。
 			if errors.Is(err, ErrCanceled) || ctx.Err() != nil {
 				return engine.MoveSourceResult{}, ErrCanceled
 			}
-			vetoEvalCp = nil
+			return engine.MoveSourceResult{}, err
 		}
 		if vetoEvalCp == nil {
 			pick = nil // 非法着法（理论上不会发生，池内均合法）
@@ -272,10 +276,11 @@ func (h *HybridLlmPlayer) nextMoveWithAdvisor(ctx context.Context, board *rules.
 			if loss > VetoThresholdCp(h.strengthBlend) {
 				second, secondErr := h.askAgainWithVeto(ctx, fen, poolByCode, report, system, user, *pick, loss)
 				if secondErr != nil {
+					// 取消原样上抛；其余引擎错误上抛（对齐 TS 无捕获传播）。
 					if errors.Is(secondErr, ErrCanceled) {
 						return engine.MoveSourceResult{}, ErrCanceled
 					}
-					second = nil
+					return engine.MoveSourceResult{}, secondErr
 				}
 				if second != nil {
 					pick = &second.move
@@ -358,10 +363,11 @@ func (h *HybridLlmPlayer) askAgainWithVeto(ctx context.Context, fen string, pool
 
 	secondCp, evalErr := h.advisor.EvaluateMove(ctx, fen, second, h.depth()-1)
 	if evalErr != nil {
+		// 取消原样上抛；其余引擎错误上抛（对齐 TS hybridPlayer.ts:287 无捕获传播）。
 		if errors.Is(evalErr, ErrCanceled) {
 			return nil, ErrCanceled
 		}
-		secondCp = nil
+		return nil, evalErr
 	}
 	if secondCp == nil {
 		return nil, nil

@@ -183,8 +183,15 @@ func TestLlmChatBindingCancel(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(120 * time.Millisecond) // 首块到达
-	app.LlmCancel("id-cancel")         // 幂等：再取消一次
+	// 等首块到达（deadline 轮询，防 CI 慢载假失败）
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if chunks, _, _ := collector.snapshot(); len(chunks) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	app.LlmCancel("id-cancel") // 幂等：再取消一次
 	app.LlmCancel("id-cancel")
 	time.Sleep(200 * time.Millisecond)
 

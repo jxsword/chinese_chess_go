@@ -437,3 +437,83 @@ func TestHybridOffModeCancel(t *testing.T) {
 		t.Fatalf("cancelledIds = %v", ids)
 	}
 }
+
+// 复审修复回归（R1-P2）：引擎参谋调用错误按 TS 语义上抛（不吞为终局状态）。
+func TestHybridEngineErrorPropagates(t *testing.T) {
+	// findBestMoveEx 非取消错误 → NextMove 返回 error（页面 onSideFailed 收口）。
+	ft := &fakeTransport{}
+	adv := &errAdvisor{exErr: fmt.Errorf("engine worker crashed")}
+	player1 := NewHybridLlmPlayer(playerCfg, ft, adv, HybridLlmPlayerOptions{
+		AdvisorMode:     AdvisorCandidate,
+		StrengthBlend:   50,
+		MaxAttempts:     1,
+		Fallback:        FallbackBuiltinAI,
+		BuiltinAiSource: noopBuiltin,
+	}, ChatClientOptions{NewID: func() string { return "x" }})
+	_, err := player1.NextMove(t.Context(), simpleBoard(t), nil)
+	if err == nil || err.Error() != "engine worker crashed" {
+		t.Fatalf("findBestMoveEx 错误应上抛，got %v", err)
+	}
+
+	// gate 首评错误 → 上抛。
+	ft2 := &fakeTransport{script: []scriptItem{scriptText("着法: a9-a8")}}
+	adv2 := &errAdvisor{report: hybridReport(), evalErr: fmt.Errorf("eval failed")}
+	player2 := NewHybridLlmPlayer(playerCfg, ft2, adv2, HybridLlmPlayerOptions{
+		AdvisorMode:     AdvisorGate,
+		StrengthBlend:   0,
+		MaxAttempts:     1,
+		Fallback:        FallbackBuiltinAI,
+		BuiltinAiSource: noopBuiltin,
+	}, ChatClientOptions{NewID: func() string { return "x" }})
+	_, err2 := player2.NextMove(t.Context(), simpleBoard(t), nil)
+	if err2 == nil || err2.Error() != "eval failed" {
+		t.Fatalf("evaluateMove 错误应上抛，got %v", err2)
+	}
+
+	// 复评错误 → 上抛（askAgainWithVeto 内）。
+	ft3 := &fakeTransport{script: []scriptItem{scriptText("着法: a9-a8"), scriptText("着法: a9-a7")}}
+	adv3 := &errAdvisor{report: hybridReport(), firstEvalCp: 0, secondEvalErr: fmt.Errorf("re-eval failed")}
+	// 首评 a9-a8 = 0 → loss 300 > 阈值 80 触发否决；复评注入错误。
+	player3 := NewHybridLlmPlayer(playerCfg, ft3, adv3, HybridLlmPlayerOptions{
+		AdvisorMode:     AdvisorGate,
+		StrengthBlend:   0,
+		MaxAttempts:     1,
+		Fallback:        FallbackBuiltinAI,
+		BuiltinAiSource: noopBuiltin,
+	}, ChatClientOptions{NewID: func() string { return "x" }})
+	_, err3 := player3.NextMove(t.Context(), simpleBoard(t), nil)
+	if err3 == nil || err3.Error() != "re-eval failed" {
+		t.Fatalf("复评错误应上抛，got %v", err3)
+	}
+}
+
+// errAdvisor 错误注入参谋：EvaluateMove 第 evalCalls 次调用可分别注入
+// （首评给分触发否决、复评注入错误）。
+type errAdvisor struct {
+	report        *engine.EngineReport
+	exErr         error
+	evalErr       error
+	firstEvalCp   int
+	secondEvalErr error
+	evalCalls     int
+}
+
+func (f *errAdvisor) FindBestMoveEx(context.Context, string, int, int, int) (*engine.EngineReport, error) {
+	return f.report, f.exErr
+}
+
+func (f *errAdvisor) EvaluateMove(_ context.Context, _ string, m rules.Move, _ int) (*int, error) {
+	f.evalCalls++
+	if f.evalCalls == 1 {
+		if f.evalErr != nil {
+			return nil, f.evalErr
+		}
+		cp := f.firstEvalCp
+		return &cp, nil
+	}
+	if f.secondEvalErr != nil {
+		return nil, f.secondEvalErr
+	}
+	cp := 295
+	return &cp, nil
+}
