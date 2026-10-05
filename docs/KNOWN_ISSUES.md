@@ -24,8 +24,20 @@
 | K10 | P3 | **repetitionJudge 对历史中无效 FEN 的行为差**：TS 版 `Board.fromFen` 会 throw；Go 版 FromFen 返回 error，classifyCycle 对无效 FEN 记 gaveCheck=false 继续（注释已说明）。该路径不可达（fenHistory 由本方对局 ToFen 采集），且与 02 §1「引擎侧对无效 FEN 静默跳过」口径一致。 | 无需处置；留档作为跨语言审计点。 |
 | K11 | P3 | **moveNotation 退化输入行为差**：from==to 时 Go 版越界 panic，TS 版产出含 undefined 的废串（两者均为坏输出）；真实走法 from≠to 恒成立，函数注释已声明前置条件。 | 无需处置；如未来出现退化调用方，在调用侧加校验（内核不加防御分支，保持逐行翻译）。 |
 
+## M2（对战页 + 存储）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K12 | P3 | **凭据槽位契约面字段差（DR-005 消解面）**：Go `SecureGet/Set` 槽位 JSON 为 `{baseUrl, apiKey, model, preset}`（07 §4），随迁前端 `LlmEndpointConfig` 类型仍含 `disableThinking`、缺 `preset`——M2 仅接存储无人消费该面（双人页不用 secure 通道），`disableThinking` 被 json 丢弃、`SecureGet` 返回缺该字段（配置卡开关显示为关）。 | M4 T4.5 配置卡接线：删除思维链开关与 `disableThinking` 字段（铁律 #10/K1 同源）、引入 preset 选择；`@shared/ipc/types` 同步。 |
+| K13 | P3 | **Wails v2 无窗口 minimize/blur 后端事件**：07 §2 映射表的 Electron `win.on('blur')/('minimize')` 无 Go 等价物。适配层以 WebView `window.blur` 派发 `blur` 相位补偿（最小化在主流平台伴随失焦）；`close`/`before-quit` 由 OnBeforeClose 发出（有界等待 300ms best-effort 存档）。极平台最小化不伴随失焦时漏一次自动保存。 | 有路由卸载（dispose）/close/手动保存三重兜底，可接受；Wails v3 或后续版本提供窗口事件时补齐。 |
+| K14 | P3 | **parseMovesJson 非整数值丢弃**（db.ts 保留 `number[][]`，Go 侧仅收整数四元组）：TS 保留的 1.5 等行在 restore 必被跳脏跳过，净效果一致（db.go 注释留档）。 | 无需处置；跨语言审计点。 |
+| K15 | P3 | **settings clamp 边界差**：load 时 clamp 仅对已存在键生效（缺省键不注入内存表，`StoreGet` 返回 null 由渲染层 fromRaw 兜底——electron-store 虚拟缺省语义）；present 数值截断取整（7.9→7，TS fromRaw 保留 7.9 后由渲染层再 clamp）。仅手改 settings.json 场景可观测。 | 无需处置；M4 Go 侧消费者（代理空闲超时）注意 nil→默认兜底。 |
+| K16 | P3 | **beforeClose 有界等待 300ms**：退出前 fire-and-forget 自动存档的 best-effort 窗口（等价 Electron 同步 best-effort 语义）；极端慢盘下最后一着可能不入档。 | 可接受（与 Electron 版同级保真）；如手测出现高频丢档再改前台等待确认。 |
+
 ## 已修复（保留记录）
 
 | # | 级别 | 描述 | 修复 |
 |---|---|---|---|
 | F1 | P0 | api 适配器探测条件过宽：Wails 运行时先同步注入 `window.go = {}`（App 方法表异步经 SetBindings 填充），以 `window.go` 真值判定会在外部浏览器打开 devserver 时误选 wailsAdapter 并在创建期抛错白屏。 | `client.ts` 探测改为 `window.go?.app?.App !== undefined`；实测两路径：外部浏览器回落 mock 正常渲染；注入 fake 绑定后 wailsAdapter 全链路（DbLoadLatest/DbSaveGame 载荷形状）验证通过。 |
+| K3 | P3 | 自动保存 `gameAutoSave.write()` 以 `void repo.saveGame(...)` 发即忘；wails 占位绑定 reject 时产生未处理 promise 拒绝（仅控制台噪音，UI 不受影响；Electron 版同型）。 | M2 已注销：db 通道接入真实存储（app.go DbSaveGame），占位拒绝噪音消解；存储真不可用时的 reject 仍保持错误可见（属正确行为面）。 |
+| P1' | P1 | 凭据服务无互斥：Wails 绑定方法并发进入时回退文件读改写竞态可丢槽位更新。 | T2.4 复审修复：Credentials 全路径加 sync.Mutex（合并路径 getRawLocked 复用锁内调用防死锁）+ 并发用例 -race 覆盖。 |
