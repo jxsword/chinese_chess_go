@@ -74,7 +74,7 @@ interface PageSettings {
 /** 红方槽位（跨页镜像来源，DR-014：黑方未配置时使用红方配置） */
 const RED_SLOT = 'llm_config_red'
 
-const DEFAULT_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', disableThinking: true }
+const DEFAULT_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', preset: '' }
 
 export function HumanVsLlmPage(): React.JSX.Element {
   const [params] = useSearchParams()

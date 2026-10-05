@@ -10,7 +10,7 @@ import { LlmVsLlmPage } from '@renderer/features/board/LlmVsLlmPage'
 import { api } from '@renderer/api/client'
 import { LLM_SETTING_KEYS } from '@packages/llm'
 
-const CONFIG = { baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test-abcd', model: 'test-model', disableThinking: true }
+const CONFIG = { baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test-abcd', model: 'test-model', preset: '' }
 
 function renderPage(route = '/llm-vs-llm'): ReturnType<typeof render> {
   return render(

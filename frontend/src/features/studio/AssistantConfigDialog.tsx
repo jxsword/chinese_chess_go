@@ -10,7 +10,7 @@ import type { LlmEndpointConfig } from '@shared/ipc/types'
 import { api } from '@renderer/api/client'
 import { LlmConfigCard } from '@renderer/features/settings/LlmConfigCard'
 
-const EMPTY_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', disableThinking: true }
+const EMPTY_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', preset: '' }
 
 export function AssistantConfigDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const [config, setConfig] = useState<LlmEndpointConfig | null>(null)

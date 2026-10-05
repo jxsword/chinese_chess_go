@@ -98,7 +98,9 @@ export {
   isConfigured,
   requestUrl,
   resolveLlmSideConfig,
+  thinkingStyleFor,
   type BuiltChatRequest,
   type LlmPreset,
-  type ResolvedLlmSideConfig
+  type ResolvedLlmSideConfig,
+  type ThinkingStyle
 } from './config'

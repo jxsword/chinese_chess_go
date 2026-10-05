@@ -1,6 +1,7 @@
 /**
  * LLM 配置卡（对应 llm_config_editor.dart，08 文档 §3.3）：
- * 预设下拉 / 端点地址 / Key（掩码回显）/ 模型 ID / 思维链开关 / 测试连接。
+ * 预设下拉 / 端点地址 / Key（掩码回显）/ 模型 ID / 测试连接。
+ * 【DR-005】无思维链开关 UI——关闭参数在请求构造层按预设恒发。
  * 配置整体经 cc:secure 槽位持久化（掩码回读，DR-010 两态鉴权）。
  */
 import { useState } from 'react'
@@ -25,8 +26,10 @@ export interface LlmConfigCardProps {
   testOverride?: { config: LlmEndpointConfig; slot: SecureSlot }
 }
 
-/** 选择预设：非"自定义"即回填端点与示例模型 ID */
+/** 当前预设：优先按配置记录的预设名，回退按端点地址匹配（旧存档兼容）。 */
 function presetFor(config: LlmEndpointConfig, presets: readonly LlmPreset[]): LlmPreset {
+  const byName = presets.find((p) => p.name === config.preset)
+  if (byName !== undefined) return byName
   const hit = presets.find(
     (p) => p !== LLM_PRESET_CUSTOM && p.baseUrl === config.baseUrl.trim()
   )
@@ -57,8 +60,13 @@ export function LlmConfigCard({ title, slot, config, onChange, presets = LLM_PRE
           value={presetFor(config, presets).name}
           onChange={(e) => {
             const preset = presets.find((p) => p.name === e.target.value)
-            if (preset === undefined || preset === LLM_PRESET_CUSTOM) return
-            onChange({ ...config, baseUrl: preset.baseUrl, model: preset.exampleModel })
+            if (preset === undefined) return
+            // 自定义也记录预设名（兜底关闭参数形态）；非自定义回填端点与示例模型。
+            onChange({
+              ...config,
+              preset: preset.name,
+              ...(preset === LLM_PRESET_CUSTOM ? {} : { baseUrl: preset.baseUrl, model: preset.exampleModel })
+            })
           }}
         >
           {presets.map((p) => (
@@ -95,19 +103,9 @@ export function LlmConfigCard({ title, slot, config, onChange, presets = LLM_PRE
           onChange={(e) => onChange({ ...config, model: e.target.value })}
         />
       </label>
-      <label className="cc-llm-field cc-llm-field-check">
-        <input
-          type="checkbox"
-          checked={config.disableThinking}
-          onChange={(e) => onChange({ ...config, disableThinking: e.target.checked })}
-        />
-        <span>
-          禁用思维链（推荐）
-          <span className="cc-settings-hint">
-            默认禁用；仅当想观察模型推理过程时才关闭本开关。
-          </span>
-        </span>
-      </label>
+      <div className="cc-settings-hint">
+        思维链已强制关闭（按端点预设发送关闭参数，无需配置）。
+      </div>
       <div className="cc-button-row">
         <button
           type="button"

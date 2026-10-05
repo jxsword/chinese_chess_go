@@ -96,13 +96,13 @@ describe('wailsAdapter 绑定命名空间（window.go.main.App）', () => {
     const api = createWailsApi()
     await api.store.set('global_auto_save', false)
     await api.secure.set('llm_config_red', {
-      baseUrl: 'https://x', apiKey: 'k', model: 'm', disableThinking: true
+      baseUrl: 'https://x', apiKey: 'k', model: 'm', preset: ''
     } as Parameters<typeof api.secure.set>[1])
     await api.clipboard.write('记谱文本')
     expect(harness.calls.map((c) => c.method)).toEqual(['StoreSet', 'SecureSet', 'ClipboardWrite'])
     expect(harness.calls[1]!.args).toEqual([
       'llm_config_red',
-      { baseUrl: 'https://x', apiKey: 'k', model: 'm', disableThinking: true }
+      { baseUrl: 'https://x', apiKey: 'k', model: 'm', preset: '' }
     ])
   })
 

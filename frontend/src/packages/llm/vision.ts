@@ -8,7 +8,7 @@
  */
 import type { BoardGrid } from '@packages/rules'
 import { buildFen, pieceFromFenChar } from '@packages/rules'
-import { requestUrl } from './config'
+import { requestUrl, thinkingStyleFor } from './config'
 import { LlmConfigError } from './errors'
 
 /** 单次识图请求超时（视觉模型大图/思考型可能超过 1 分钟，实测关闭思维链 6~14s）。 */
@@ -60,7 +60,7 @@ export interface BuiltVisionRequest {
  * 未配置（端点/模型缺失）抛 LlmConfigError；空 Key 不带鉴权头（本地网关）。
  */
 export function buildVisionRequest(
-  config: { baseUrl: string; apiKey: string; model: string; disableThinking: boolean },
+  config: { baseUrl: string; apiKey: string; model: string; preset: string },
   dataUrl: string
 ): BuiltVisionRequest {
   if (config.baseUrl.trim() === '' || config.model.trim() === '') {
@@ -81,9 +81,11 @@ export function buildVisionRequest(
     temperature: VISION_TEMPERATURE,
     max_tokens: VISION_MAX_TOKENS
   }
-  // 思考型模型（qwen3.8-max 等）的思维链会把识图拖到 60s 以上
-  // （实测关闭后 115s→6s）；与对弈通道一致，由配置开关控制。
-  if (config.disableThinking) {
+  // DR-005：识图请求恒发思维链关闭参数（05 §7）——思考型模型的思维链会把
+  // 识图拖到 60s 以上（实测关闭后 115s→6s）；按预设映射，与对弈通道一致。
+  if (thinkingStyleFor(config.preset) === 'glm') {
+    body['thinking'] = { type: 'disabled' }
+  } else {
     body['enable_thinking'] = false
   }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }

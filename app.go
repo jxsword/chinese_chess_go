@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jxsword/chinese_chess_go/internal/engine"
+	"github.com/jxsword/chinese_chess_go/internal/llm"
 	"github.com/jxsword/chinese_chess_go/internal/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -36,6 +37,12 @@ type App struct {
 	// engineRunner 引擎通道（M3）：每请求独立 goroutine + ctx 取消注册表
 	//（DR-003/03 §7）。求解器/解析器通道随 M5/M6 复用同型 Runner。
 	engineRunner *engine.Runner
+
+	// llmProxy LLM 传输代理（M4，05 §3.2）：受理即返回 + 事件回发 + authSlot 注入。
+	llmProxy *llm.Proxy
+	llmOnce  sync.Once
+	// llmSenderOverride 测试注入的事件收集器（生产走 EventsEmit）。
+	llmSenderOverride llm.ProxySender
 }
 
 // NewApp 创建绑定层实例（Wails Bind 入口）。
@@ -349,23 +356,119 @@ func (a *App) ClipboardWrite(text string) error {
 // 消息形状 {id, type, payload} / {id, ok, result|error|progress} 在内部协议保留（铁律 #7）。
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// LLM 传输（M4：internal/llm Proxy + 事件回发，00 文档 §3.2 通道映射；铁律 #4）
+// ---------------------------------------------------------------------------
+
+// llmEventSender EventsEmit 事件回发（载荷含 requestID；ctx 未就绪时静默丢弃）。
+type llmEventSender struct {
+	app *App
+}
+
+func (s llmEventSender) SendChunk(requestID string, delta llm.Delta) {
+	if s.app.ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(s.app.ctx, "llm:chunk", map[string]any{"requestId": requestID, "delta": delta})
+}
+
+func (s llmEventSender) SendDone(requestID string, text string) {
+	if s.app.ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(s.app.ctx, "llm:done", map[string]any{"requestId": requestID, "text": text})
+}
+
+func (s llmEventSender) SendError(requestID string, message string) {
+	if s.app.ctx == nil {
+		return
+	}
+	wailsruntime.EventsEmit(s.app.ctx, "llm:error", map[string]any{"requestId": requestID, "message": message})
+}
+
+// llmTimeoutSeconds 空闲超时秒数来源（llm_settings_timeoutSeconds；未配置回落默认并 clamp）。
+func (a *App) llmTimeoutSeconds() int {
+	if a.settings == nil {
+		return llm.ResolveTimeoutSeconds(nil)
+	}
+	return llm.ResolveTimeoutSeconds(a.settings.Get(llm.SettingKeyTimeoutSeconds))
+}
+
+// resolveApiKey 凭据槽位 → 完整 API Key（authSlot 注入用；掩码 Key 不回渲染层的
+// 配对出口，DR-010 对应）。无/未配置返回空串。
+func (a *App) resolveApiKey(slot string) string {
+	if a.credentials == nil {
+		return ""
+	}
+	if cfg := a.credentials.GetRaw(slot); cfg != nil {
+		return cfg.APIKey
+	}
+	return ""
+}
+
+// llmSender 事件回发出口（测试注入收集器；生产走 EventsEmit）。
+func (a *App) llmSender() llm.ProxySender {
+	if a.llmSenderOverride != nil {
+		return a.llmSenderOverride
+	}
+	return llmEventSender{app: a}
+}
+
+// getLlmProxy 懒装配 LLM 代理（受理由 llmOnce 保证单例；测试可先 initServices）。
+func (a *App) getLlmProxy() *llm.Proxy {
+	a.llmOnce.Do(func() {
+		a.llmProxy = llm.NewProxy(llm.ProxyOptions{
+			GetTimeoutSeconds: a.llmTimeoutSeconds,
+			ResolveAPIKey:     a.resolveApiKey,
+		})
+	})
+	return a.llmProxy
+}
+
+// LlmChatRequest cc:llm:chat 载荷（00 §3.1；url/body/headers 由渲染层 packages/llm 组装）。
+type LlmChatRequest struct {
+	RequestID string            `json:"requestId"`
+	URL       string            `json:"url"`
+	Headers   map[string]string `json:"headers"`
+	Body      string            `json:"body"`
+	AuthSlot  string            `json:"authSlot"`
+}
+
 // LlmChat 受理流式对话请求（恒 resolve 语义 = 受理即返回）；
-// 结局经事件 llm:chunk / llm:done / llm:error 回传，载荷含 requestID。（M4 接入）
-func (a *App) LlmChat(req map[string]any) error {
-	_ = req // {requestId, url, headers, body, authSlot}
-	return errMilestone("LLM 对话", "M4")
+// 结局经事件 llm:chunk / llm:done / llm:error 回传，载荷含 requestId。
+// 取消经 LlmCancel；取消后不再有任何事件（迟到丢弃在渲染层按 requestId 收口）。
+func (a *App) LlmChat(req LlmChatRequest) error {
+	if req.RequestID == "" || req.URL == "" {
+		return fmt.Errorf("llm chat 载荷不完整（需 requestId 与 url）")
+	}
+	a.getLlmProxy().Chat(llm.ChatRequest{
+		RequestID: req.RequestID,
+		URL:       req.URL,
+		Headers:   req.Headers,
+		Body:      req.Body,
+		AuthSlot:  req.AuthSlot,
+	}, a.llmSender())
+	return nil
 }
 
-// LlmCancel 取消在途请求（context cancel；幂等）。（M4 接入）
+// LlmCancel 取消在途请求（context cancel；幂等）。
 func (a *App) LlmCancel(requestID string) {
-	_ = requestID
+	a.getLlmProxy().Cancel(requestID)
 }
 
-// LlmTestConnection 配置卡"测试连接"（单次非流式，同步结果）。（M4 接入）
+// LlmTestConnection 配置卡"测试连接"（单次最小流式请求，同步收集结局）。
+// cfg 为渲染层 LlmEndpointConfig（掩码 Key + authSlot 由传输代理注入真实鉴权）。
 func (a *App) LlmTestConnection(cfg map[string]any, authSlot string) (map[string]any, error) {
-	_ = cfg
-	_ = authSlot
-	return nil, errMilestone("LLM 测试连接", "M4")
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var config llm.LlmEndpointConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, err
+	}
+	result := a.getLlmProxy().TestConnection(config, authSlot)
+	return map[string]any{"ok": result.OK, "message": result.Message}, nil
 }
 
 // VisionReadBoard 视觉识图（多模态非流式；M6 接入，识图请求恒发关闭参数）。

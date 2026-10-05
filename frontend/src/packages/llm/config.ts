@@ -1,9 +1,11 @@
 /**
  * LLM 端点配置与请求构建（llm_config.dart + llm_move_source.dart:_chat 1:1 移植）。
  *
- * 请求格式（05 文档 §3.1）：OpenAI 兼容 /chat/completions，temperature 0.3、
- * 流式；enable_thinking=false 仅在 disableThinking=true 时发送（其他端点会
- * 忽略未知参数）。Key 只经主进程注入（DR-010）：渲染层持掩码 Key 时走 authSlot。
+ * 请求格式（05 文档 §3.1）：OpenAI 兼容 /chat/completions，temperature 0.3、流式。
+ * 【DR-005 思维链强制关闭】构造函数无条件注入关闭参数、无任何开关，按端点预设
+ * 映射：DashScope/Qwen 系→"enable_thinking": false；智谱 GLM（glm-4.5+）→
+ * "thinking":{"type":"disabled"}；其余端点→enable_thinking:false 兜底。
+ * Key 只经主进程注入（DR-010）：渲染层持掩码 Key 时走 authSlot。
  * 纯 TypeScript：禁止 import DOM / Node / React 任何符号（铁律 #1）。
  */
 import type { LlmEndpointConfig, SecureSlot } from '@shared/ipc/types'
@@ -74,9 +76,11 @@ export function buildChatRequest(
     max_tokens: options.useV2 ? MAX_TOKENS_V2 : MAX_TOKENS_V1,
     stream: true
   }
-  // 思考型模型（Qwen3 等）的关闭开关；其他端点会忽略未知参数，
-  // 因此仅在用户显式开启时发送（llm_move_source.dart:367-369）。
-  if (config.disableThinking) {
+  // DR-005：无条件注入思维链关闭参数（无任何开关路径）。GLM 形态走
+  // thinking 对象，其余（含 DashScope 语义与兜底）走顶层布尔。
+  if (thinkingStyleFor(config.preset) === 'glm') {
+    body['thinking'] = { type: 'disabled' }
+  } else {
     body['enable_thinking'] = false
   }
 
@@ -152,23 +156,37 @@ export function resolveLlmSideConfig(
   return { config: own, authSlot: ownSlot }
 }
 
+/** 思维链关闭参数形态（DR-005 预设映射；05 §3.1 表）：
+ * glm=thinking:{type:disabled}；dashscope=enable_thinking:false（与 default 兜底同形）。 */
+export type ThinkingStyle = 'default' | 'glm' | 'dashscope'
+
 /** 常用 OpenAI 兼容端点预设（仅公开地址与示例模型 ID，不含任何凭据；llm_config.dart:88-104）。 */
 export interface LlmPreset {
   name: string
   baseUrl: string
   exampleModel: string
+  thinkingStyle: ThinkingStyle
 }
 
-export const LLM_PRESET_CUSTOM: LlmPreset = { name: '自定义', baseUrl: '', exampleModel: '' }
+export const LLM_PRESET_CUSTOM: LlmPreset = { name: '自定义', baseUrl: '', exampleModel: '', thinkingStyle: 'default' }
 
 export const LLM_PRESETS: readonly LlmPreset[] = [
-  { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', exampleModel: 'glm-4-flash' },
-  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', exampleModel: 'deepseek-chat' },
-  { name: 'Kimi（Moonshot）', baseUrl: 'https://api.moonshot.cn/v1', exampleModel: 'moonshot-v1-8k' },
-  { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', exampleModel: 'openai/gpt-4o-mini' },
-  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', exampleModel: 'gpt-4o-mini' },
+  { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', exampleModel: 'glm-4-flash', thinkingStyle: 'glm' },
+  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', exampleModel: 'deepseek-chat', thinkingStyle: 'default' },
+  { name: 'Kimi（Moonshot）', baseUrl: 'https://api.moonshot.cn/v1', exampleModel: 'moonshot-v1-8k', thinkingStyle: 'default' },
+  { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', exampleModel: 'openai/gpt-4o-mini', thinkingStyle: 'default' },
+  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', exampleModel: 'gpt-4o-mini', thinkingStyle: 'default' },
   LLM_PRESET_CUSTOM
 ]
+
+/** 按预设名解析思维链关闭参数形态（DR-005：构造层唯一入口；
+ * 自定义/未知/空预设一律兜底形态，未知参数被端点忽略、无害）。 */
+export function thinkingStyleFor(preset: string): ThinkingStyle {
+  for (const p of [...LLM_PRESETS, ...VISION_LLM_PRESETS]) {
+    if (p.name === preset) return p.thinkingStyle
+  }
+  return 'default'
+}
 
 /**
  * 视觉理解模型预设（研究助手/识图专用，M6 使用；llm_config.dart:106-137）。
@@ -179,15 +197,17 @@ export const VISION_LLM_PRESETS: readonly LlmPreset[] = [
   {
     name: '通义千问 3.8-Max（旗舰视觉，阿里云百炼）',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    exampleModel: 'qwen3.8-max'
+    exampleModel: 'qwen3.8-max',
+    thinkingStyle: 'dashscope'
   },
   {
     name: '通义千问 VL（阿里云百炼）',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    exampleModel: 'qwen-vl-max'
+    exampleModel: 'qwen-vl-max',
+    thinkingStyle: 'dashscope'
   },
-  { name: '智谱 GLM-4.5V（视觉）', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', exampleModel: 'glm-4.5v' },
-  { name: 'OpenAI GPT-4o mini（视觉）', baseUrl: 'https://api.openai.com/v1', exampleModel: 'gpt-4o-mini' },
-  { name: 'OpenRouter（视觉）', baseUrl: 'https://openrouter.ai/api/v1', exampleModel: 'openai/gpt-4o-mini' },
+  { name: '智谱 GLM-4.5V（视觉）', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', exampleModel: 'glm-4.5v', thinkingStyle: 'glm' },
+  { name: 'OpenAI GPT-4o mini（视觉）', baseUrl: 'https://api.openai.com/v1', exampleModel: 'gpt-4o-mini', thinkingStyle: 'default' },
+  { name: 'OpenRouter（视觉）', baseUrl: 'https://openrouter.ai/api/v1', exampleModel: 'openai/gpt-4o-mini', thinkingStyle: 'default' },
   LLM_PRESET_CUSTOM
 ]

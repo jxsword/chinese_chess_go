@@ -9,7 +9,7 @@ import type { LlmTransport } from '@packages/llm'
 const FEN_A = '3k5/9/9/9/R8/8R/9/9/9/4K4 w - - 0 1'
 const OPTIONS = { timeLimitMs: 30_000, maxPlies: 9 }
 
-const config = { baseUrl: 'https://api.example.com/v1', apiKey: 'sk', model: 'glm-4.5v', disableThinking: true }
+const config = { baseUrl: 'https://api.example.com/v1', apiKey: 'sk', model: 'glm-4.5v', preset: '智谱 GLM-4.5V（视觉）' }
 
 /** 可编程单次回包传输。 */
 function oneShot(response: string): LlmTransport {

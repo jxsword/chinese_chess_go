@@ -74,7 +74,7 @@ describe('WindowApi 类型契约', () => {
       baseUrl: string
       apiKey: string
       model: string
-      disableThinking: boolean
+      preset: string
     }>()
     expectTypeOf<GameMode>().toEqualTypeOf<
       'humanVsAi' | 'humanVsHuman' | 'aiVsAi' | 'humanVsLlm' | 'llmVsLlm' | 'endgame'
@@ -132,7 +132,7 @@ describe('mock api 行为', () => {
       baseUrl: 'https://mock.local',
       apiKey: 'sk-test-abcd',
       model: 'mock-model',
-      disableThinking: true
+      preset: ''
     })
     expect(res.ok).toBe(true)
   })
@@ -193,7 +193,7 @@ describe('mock api 行为', () => {
       baseUrl: 'https://mock.local',
       apiKey: 'sk-test-abcd',
       model: 'm',
-      disableThinking: true
+      preset: ''
     }
     expect(await api.secure.get('llm_config_red')).toBeNull()
     expect(await api.secure.set('llm_config_red', cfg)).toEqual({ stored: 'encrypted' })

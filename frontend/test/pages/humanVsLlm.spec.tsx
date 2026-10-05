@@ -90,7 +90,7 @@ describe('人机对战（大模型）页（08 §3.3）', () => {
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
       apiKey: 'sk-test-abcd',
       model: 'glm-4-flash',
-      disableThinking: true
+      preset: ''
     })
     renderPage()
     await screen.findByTestId('llm-config-card')
@@ -228,7 +228,7 @@ describe('人机对战（大模型）页（08 §3.3）', () => {
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
       apiKey: 'sk-test-abcd',
       model: 'glm-4-flash',
-      disableThinking: true
+      preset: ''
     })
     renderPage()
     await screen.findByTestId('llm-config-card')

@@ -16,12 +16,14 @@ export type GameResult = 'redWins' | 'blackWins' | 'draw'
 /** 求解状态（07 文档 §1.1 solve_status 注释） */
 export type SolveStatus = 'none' | 'solved' | 'noSolution' | 'timeout'
 
-/** LLM 端点配置（07 文档 §4 三槽位整体 JSON；05 文档 §3.1 请求字段由此组装） */
+/** LLM 端点配置（07 文档 §4 三槽位整体 JSON；05 文档 §3.1 请求字段由此组装）。
+ * 无 disableThinking 字段——DR-005，思维链关闭参数在请求构造层按 preset 恒发。 */
 export interface LlmEndpointConfig {
   baseUrl: string
   apiKey: string
   model: string
-  disableThinking: boolean
+  /** 配置卡选择的预设名（thinkingStyleFor 据此选关闭参数形态；空串/未知走兜底） */
+  preset: string
 }
 
 /** safeStorage 三槽位名（07 文档 §4） */

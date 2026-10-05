@@ -42,7 +42,7 @@ import { RecordSaveDialog } from '@renderer/features/record/RecordSaveDialog'
 
 const RED_SLOT = 'llm_config_red'
 const BLACK_SLOT = 'llm_config_black'
-const DEFAULT_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', disableThinking: true }
+const DEFAULT_CONFIG: LlmEndpointConfig = { baseUrl: '', apiKey: '', model: '', preset: '' }
 
 const TIMEOUT_OPTIONS: Record<number, string> = { 30: '30 秒', 60: '60 秒', 120: '120 秒', 180: '180 秒', 300: '300 秒' }
 const ATTEMPT_OPTIONS: Record<number, string> = { 1: '1 次', 3: '3 次', 5: '5 次' }
