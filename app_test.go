@@ -438,3 +438,89 @@ func TestEngineBindingCancel(t *testing.T) {
 		t.Fatal("取消后 3s 内未结算")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T6.1 求解绑定面（04 §2/§5）：wire 形状对齐前端 solverProtocol.ts、缺省档、
+// 取消链路（DR-003 同引擎口径）。
+// ---------------------------------------------------------------------------
+
+func TestSolverBindingsEndToEnd(t *testing.T) {
+	app := NewApp()
+	fenA := "3k5/9/9/9/R8/8R/9/9/9/4K4 w"
+
+	// solve：返回 SolveResult wire 形状（status/solutions/elapsed/searchedPlies）。
+	resultRaw, err := app.SolverSolve("id-solve", fenA, 10_000, 3)
+	if err != nil {
+		t.Fatalf("SolverSolve 报错: %v", err)
+	}
+	resultJSON, err := json.Marshal(resultRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wireResult struct {
+		Status    string `json:"status"`
+		Solutions []struct {
+			Moves []map[string]any `json:"moves"`
+		} `json:"solutions"`
+		Elapsed       int64 `json:"elapsed"`
+		SearchedPlies int   `json:"searchedPlies"`
+	}
+	if err := json.Unmarshal(resultJSON, &wireResult); err != nil {
+		t.Fatalf("solve 结果非 SolveResult 形状: %v (%s)", err, resultJSON)
+	}
+	if wireResult.Status != "solved" || len(wireResult.Solutions) < 2 {
+		t.Fatalf("FEN-A 应多解 solved: %s", resultJSON)
+	}
+	// 每条解法 1 着（一着制胜），moves 为 {from,to} 形状。
+	for _, solution := range wireResult.Solutions {
+		if len(solution.Moves) != 1 {
+			t.Fatalf("一着制胜解法应恰 1 着: %s", resultJSON)
+		}
+		if _, ok := solution.Moves[0]["to"].(map[string]any); !ok {
+			t.Fatalf("moves[0].to 非坐标对象: %s", resultJSON)
+		}
+	}
+
+	// isWinningFirstMove：必胜首着 true / 不合法首着 false。
+	win, err := app.SolverIsWinningFirstMove("id-win", fenA,
+		map[string]any{"from": map[string]any{"col": 0, "row": 4}, "to": map[string]any{"col": 3, "row": 4}},
+		1, 10_000)
+	if err != nil || !win {
+		t.Errorf("车一 (0,4)->(3,4) 应为必胜首着, got %v %v", win, err)
+	}
+	lose, err := app.SolverIsWinningFirstMove("id-lose", fenA,
+		map[string]any{"from": map[string]any{"col": 0, "row": 0}, "to": map[string]any{"col": 3, "row": 4}},
+		3, 10_000)
+	if err != nil || lose {
+		t.Errorf("不合法首着应返回 false, got %v %v", lose, err)
+	}
+
+	// 非法 FEN：invoke reject（前端 toast "求解失败：…"）。
+	if _, err := app.SolverSolve("id-badfen", "k8/9/9/9/9/9/9/9/9/4K5 w", 1_000, 3); err == nil {
+		t.Errorf("非法 FEN 应报错")
+	}
+
+	// cancel：未知 id 幂等。
+	app.SolverCancel("id-unknown")
+}
+
+func TestSolverBindingCancel(t *testing.T) {
+	app := NewApp()
+	fenC := "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.SolverSolve("id-cancel", fenC, 60_000, 13)
+		done <- err
+	}()
+	time.Sleep(80 * time.Millisecond)
+	app.SolverCancel("id-cancel")
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "canceled") {
+			t.Fatalf("取消应以 canceled 结算，got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("取消后 5s 内未结算")
+	}
+}

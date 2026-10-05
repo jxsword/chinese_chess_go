@@ -13,6 +13,7 @@ import (
 	"github.com/jxsword/chinese_chess_go/internal/engine"
 	"github.com/jxsword/chinese_chess_go/internal/llm"
 	"github.com/jxsword/chinese_chess_go/internal/parsers"
+	"github.com/jxsword/chinese_chess_go/internal/solver"
 	"github.com/jxsword/chinese_chess_go/internal/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -43,6 +44,10 @@ type App struct {
 	// ctx 取消，electron-DR-016 的 goroutine 映射，06 §6）。
 	parserRunner *parsers.Runner
 
+	// solverRunner 求解通道（M6）：与 engine.Runner 同型（goroutine + ctx 取消，
+	// DR-003，04 §5）。
+	solverRunner *solver.Runner
+
 	// llmProxy LLM 传输代理（M4，05 §3.2）：受理即返回 + 事件回发 + authSlot 注入。
 	llmProxy *llm.Proxy
 	llmOnce  sync.Once
@@ -59,7 +64,7 @@ type App struct {
 
 // NewApp 创建绑定层实例（Wails Bind 入口）。
 func NewApp() *App {
-	return &App{engineRunner: engine.NewRunner(), parserRunner: parsers.NewRunner()}
+	return &App{engineRunner: engine.NewRunner(), parserRunner: parsers.NewRunner(), solverRunner: solver.NewRunner()}
 }
 
 // errMilestone 占位方法统一错误：指明方法与计划接入里程碑。
@@ -642,28 +647,58 @@ func (a *App) engineCall(requestID string, reqType engine.RequestType, payload a
 	return resp.Result, nil
 }
 
-// SolverSolve 求解残局（M6 接入：internal/solver，AND/OR 迭代加深）。
+// SolverSolve 求解残局（M6：internal/solver，AND/OR 迭代加深；goroutine + ctx
+// 取消，04 §2/§5——绑定阻塞至结算，取消经 SolverCancel）。
 func (a *App) SolverSolve(requestID, fen string, timeLimitMs, maxPlies int) (any, error) {
-	_ = requestID
-	_ = fen
-	_ = timeLimitMs
-	_ = maxPlies
-	return nil, errMilestone("残局求解", "M6")
+	return a.solverCall(requestID, solver.ReqSolve, solver.SolvePayload{
+		Fen:         fen,
+		TimeLimitMs: timeLimitMs, // 0=未设 → 缺省 30s（04 §2 wire 缺省约定）
+		MaxPlies:    maxPlies,    // 0=未设 → 缺省 9
+	})
 }
 
-// SolverIsWinningFirstMove 验证首着是否必胜（LLM 求解辅助裁判；M6 接入）。
+// SolverIsWinningFirstMove 验证首着是否必胜（LLM 求解辅助裁判，04 §3/05 §6）。
+// firstMove 为渲染层原始 JSON 对象（{from:{col,row}, to:{col,row}}），
+// 协议层解为 WireMove。
 func (a *App) SolverIsWinningFirstMove(requestID, fen string, firstMove map[string]any, plies, timeLimitMs int) (bool, error) {
-	_ = requestID
-	_ = fen
-	_ = firstMove
-	_ = plies
-	_ = timeLimitMs
-	return false, errMilestone("首着验证", "M6")
+	rawMove, err := json.Marshal(firstMove)
+	if err != nil {
+		return false, err
+	}
+	result, err := a.solverCall(requestID, solver.ReqIsWinningFirstMove, solver.IsWinningFirstMovePayload{
+		Fen:         fen,
+		FirstMove:   rawMove,
+		Plies:       plies,       // 0=未设 → 缺省 9（04 §2 wire 缺省约定）
+		TimeLimitMs: timeLimitMs, // 0=未设 → 缺省 30s
+	})
+	if err != nil {
+		return false, err
+	}
+	win, ok := result.(bool)
+	if !ok {
+		return false, fmt.Errorf("首着验证结果形状异常: %T", result)
+	}
+	return win, nil
 }
 
-// SolverCancel 取消求解请求（context cancel；幂等）。
+// SolverCancel 取消求解请求（context cancel；幂等）。取消后结算的迟到结果
+// 由前端按 requestId 丢弃（00 §3.2 主语义）。
 func (a *App) SolverCancel(requestID string) {
-	_ = requestID
+	a.solverRunner.Cancel(requestID)
+}
+
+// solverCall 提交请求并阻塞等待结算；失败以 error 返回（Wails invoke reject，
+// 前端 solverClient 统一映射为 {ok:false, error} 响应）。
+func (a *App) solverCall(requestID string, reqType solver.RequestType, payload any) (any, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	resp := <-a.solverRunner.Submit(solver.Request{ID: requestID, Type: reqType, Payload: raw})
+	if !resp.OK {
+		return nil, errors.New(resp.Error)
+	}
+	return resp.Result, nil
 }
 
 // ParserParseBatch 批量解析棋谱文件字节（M5：internal/parsers 协议层，goroutine
