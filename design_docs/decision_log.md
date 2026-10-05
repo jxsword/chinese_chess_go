@@ -115,7 +115,7 @@
   - D. nfpm 加 rpm 输出——优点：覆盖 Fedora。缺点：目标用户面单一（自有 deb 需求明确）。弃：按需后补。
   - E. Linux 直接 AppImage 单格式（去 deb）——优点：少一个包。缺点：deb 有桌面条目/图标集成，apt 用户自然。弃：双格式成本近零（同一 nfpm/linuxdeploy 各一行）。
   - F. Windows 追加绿色 zip——优点：免安装党。缺点：10 §4 未定案，Setup.exe 已覆盖验收口径。弃：DoD 不要求。
-- 结论：A（按 10 §4 定案落地），Linux 构建按 CI 同口径 `-tags webkit2_41` + libwebkit2gtk-4.1-dev（webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，10 §3 R1' 缓解沿 ci.yml；启动提示词中 "libwebkit2gtk-4.0-dev" 为预置期旧口径）；Windows runner go test 退化无 -race（CGO 工具链缺失）。
+- 结论：A（按 10 §4 定案落地），Linux 构建按 CI 同口径 `-tags webkit2_41` + libwebkit2gtk-4.1-dev（webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，10 §3 R1' 缓解沿 ci.yml；启动提示词中 "libwebkit2gtk-4.0-dev" 为预置期旧口径）；Windows runner go test 退化无 -race（CGO 工具链缺失）。（**更正：此判断有误**，Windows runner 预装 MinGW、-race 可跑，见 DR-012。）
 - 理由：全部工具在依赖白名单哲学内（不进 go.mod）；每平台选择其生态最短路；弃用项均记录可回溯。
 - 影响：.github/workflows/release.yml、build/nfpm.yaml、build/linux/{build-appimage.sh,desktop,512 图标}；10 §4 增落地注记；本地已冒烟 Linux 三产物 + 二进制启动（12.9s 构建）。
 
@@ -128,3 +128,12 @@
 - 结论：A。实现：moveLogger 装饰器（开局头/逐手行含耗时+着法+⚠兜底标记/无着/失败截断 60 字/异常 + 对局内两座位共享 ply 计数）+ runLoggedMatch 终局摘要 + buildProfiles 增 OnAttempt 注入（"[profile] 模型第 N/3 次尝试"）+ suite 分档分隔条。单手超时路径逐手行可能迟到打印（Promise.race 败者语义），不影响报告。
 - 理由：stderr 为人类调试通道，不进入任何协议快照/金标准对拍面；MatchReport JSON、exit code、落盘格式全部不变（cmd/eval 测试与 mock 实跑复核逐字节一致）。
 - 影响：cmd/eval/main.go、main_test.go 调用点；PROGRESS 手测指引 A 项注记；decision_log DR-011。
+
+## DR-012 release.yml 全平台 -race 纠偏 + Windows 平台性测试差异修复（2026-10-06）
+- 背景：v1.0.0-rc1 首跑 CI 暴露 main 分支 Windows 侧两类测试失败（此前未察觉）；复查发现 DR-010/K34"Windows runner 无 CGO 工具链、go test 退化无 -race"系**误判**——M0 ci.yml 一直在 Windows 跑 `go test -race ./...` 且各包 ok（runner 预装 MinGW）。
+- 选项：
+  - A. release.yml 恢复全平台 -race + 修复两类平台性测试——优点：回归 AGENTS 质量门原文（go test ./... -race 无例外）、三平台口径一致。采纳。
+  - B. 维持 Windows 无 -race——优点：少改一处。缺点：基于错误前提、与 ci.yml 口径分裂、质量门缩水。弃。
+- 结论：A。修复内容：①newTestApp/TestLazyDaoOpenRetry 补 t.Cleanup 关闭 sqlite 句柄（Windows 不可删打开中的文件，09 §3 平台性教训）；②凭据回退文件 0600 断言改非 Windows 才断言（Windows 无 POSIX 权限位，Stat 恒 0666，语义由 NTFS ACL 承载）。
+- 理由：质量门不因平台缩水；测试修复属平台可移植性而非降低断言（0600 意图在 Windows 不可复现，跳过是唯一正确口径）。
+- 影响：.github/workflows/release.yml、app_test.go、internal/storage/credentials_test.go、K34 改写；v1.0.0-rc1 重打 tag 重跑。

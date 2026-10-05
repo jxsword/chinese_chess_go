@@ -58,6 +58,13 @@ func newTestApp(t *testing.T, kr storage.Keyring) *App {
 	dir := t.TempDir()
 	app := NewApp()
 	app.initServices(dir, filepath.Join(dir, "test.sqlite"), kr)
+	// Windows：sqlite 句柄未关会使 t.TempDir() RemoveAll 失败（09 §3 平台性教训）。
+	// Cleanup LIFO——此清理先于 TempDir 移除执行。
+	t.Cleanup(func() {
+		if app.dao != nil {
+			_ = app.dao.Close()
+		}
+	})
 	return app
 }
 
@@ -319,6 +326,8 @@ func TestLazyDaoOpenRetry(t *testing.T) {
 	if !reflect.DeepEqual(app.dao, dao) {
 		t.Fatal("应复用已打开连接")
 	}
+	// Windows：句柄先于 TempDir 清理关闭（09 §3）。
+	t.Cleanup(func() { _ = dao.Close() })
 }
 
 // documentsDir 在 ~/Documents 缺失时创建（07 §1 存档落 Documents；WSL 默认无该目录）。

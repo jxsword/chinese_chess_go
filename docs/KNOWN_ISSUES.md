@@ -75,7 +75,7 @@
 
 | # | 级别 | 描述 | 处置计划 |
 |---|---|---|---|
-| K34 | P3 | **Windows release 矩阵 go test 无 -race**：GitHub windows runner 无默认 CGO/gcc 工具链，race 检测器不可用；release.yml 中 Windows 退化为普通 `go test ./...`，-race 门在 Linux/macOS 全量照跑（AGENTS 质量门全文照录为 "go test ./... -race"，CI 口径已有此分解）。 | 无需处置；Windows 侧回归由 CI 全量单测 + 用户 Windows 产物手测覆盖。 |
+| K34 | P3 | **Windows CI 平台性测试差异（已修复）+ 一处误判纠正**：①sqlite 句柄未关致 t.TempDir() RemoveAll 失败（Windows 不可删打开中的文件，09 §3 平台性教训——newTestApp/TestLazyDaoOpenRetry 补 t.Cleanup 关闭）；②回退文件 0600 断言在 Windows 恒败（无 POSIX 权限位，Chmod 仅置只读位、Stat 恒 0666，"仅当前用户可读"由 NTFS ACL 承载——非 Windows 才断言）。另纠正：Windows runner 预装 MinGW，-race 可跑（M0 ci.yml 实证），release.yml 初版"无 CGO 工具链退化无 -race"系误判，已改回全平台 -race。 | 已修复（同 commit）；release v1.0.0-rc1 重打 tag 后全平台 -race 生效。 |
 | K35 | P3 | **AppImage 体积 ~80MB**：linuxdeploy 按 AppDir 约束打包 webkit2gtk 全量传递依赖 so（webview 运行时固有体积），deb/tar.gz 仅 7MB/16MB 二进制本体。 | 无需处置；格式固有。若需瘦身需换 webkit 运行时宿主策略（超 v1.0 范围）。 |
 | K36 | P3 | **MatchRunner 逐手质量评估深度差在 profile 评估中的口径提示**：eval CLI 质量评估固定 qualityDepth=4（FindBestMoveEx depth4/Top3），而 hybrid 参谋实际用 advisorDifficulty 5（depth6）出候选——候选/护航模式的 Top-3 失随统计不恒为 0（短名单深度高于评估深度）；与 TS eval.ts 逐行同构，非 Go 偏差，仅口径解读提示（DoD #4 的"失误率 ≈0%"以 Electron 版同口径跑真实端点对比为准）。 | 无需处置；跨语言逐位同构，对比结论有效。 |
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -227,13 +228,16 @@ func TestCredentialsPlainFallbackWhenKeyringUnavailable(t *testing.T) {
 	if !strings.Contains(string(raw), testConfig.APIKey) {
 		t.Fatal("回退文件应含完整 Key（明文回退的目的）")
 	}
-	// 权限 0600（仅当前用户可读）
-	info, err := os.Stat(fallback)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("回退文件权限 = %v, want 0600", info.Mode().Perm())
+	// 权限 0600（仅当前用户可读）。Windows 无 POSIX 权限位（Chmod 仅置只读位，
+	// Stat 恒报 0666，"仅当前用户可读"由 NTFS ACL 承载）——非 Windows 断言。
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(fallback)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("回退文件权限 = %v, want 0600", info.Mode().Perm())
+		}
 	}
 	// 渲染层仍只见掩码
 	assertMaskedGet(t, svc.Get(SlotRed))

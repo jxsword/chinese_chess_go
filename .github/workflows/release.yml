@@ -87,13 +87,10 @@ jobs:
         if: runner.os != 'Linux'
         run: go vet ./...
 
-      # -race 需 CGO 工具链，Windows runner 无默认 gcc：windows 退化为普通 go test。
+      # -race 全平台（windows runner 预装 MinGW，M0 ci.yml 实证可跑——
+      # 初版误判"无 CGO 工具链"已纠正，DR-012）。
       - name: Go test (-race)
-        if: runner.os != 'Windows'
         run: go test ./... -race
-      - name: Go test
-        if: runner.os == 'Windows'
-        run: go test ./...
 
       - name: Frontend lint + test (Linux 一份)
         if: runner.os == 'Linux'
