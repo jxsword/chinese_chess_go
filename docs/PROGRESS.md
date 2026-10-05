@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M2（对战页 + 存储）代码完成，待用户复测**——T2.1~T2.4 全部提交、两轮复审完成（P1×1 已修复，P2/P3 记 KNOWN_ISSUES K12~K16）、质量门全绿；首轮手测发现 P0 缺陷 F2（绑定命名空间错误致桌面窗口静默走 mock），已修复并端到端取证，等待复测。
+**M3（引擎 + L0/L1/L2 重复治理）代码完成，待用户手测**——T3.1~T3.5 全部提交（金标准对拍先全绿后开 L1/L2 层，顺序铁律 ✓）、两轮复审完成（翻译缺陷 2 处当场修复，P3×2 记 KNOWN_ISSUES K17/K18）、质量门全绿、性能门实测达标。人机对战页桌面模式已由 Go 引擎供手（浏览器 mock 模式仍走 TS 引擎内核）。
 
 ## 里程碑总览
 
@@ -15,13 +15,40 @@
 | M0 工程骨架 | ✅+用户 | — | go.mod + Wails + frontend 移植 + CI（用户以启动 M1 验收通过） |
 | M1 规则内核 + L3 | ✅ | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5；用户以启动 M2 验收通过） |
 | M2 对战页 + 存储 | 🔵 代码完成，待手测 | — | sqlite DAO + 设置/凭据 + fenHistory 四收口 + 双人页裁决接线（T2.1~T2.4） |
-| M3 引擎 + L0/L1/L2 | ⬜ | | engine.json 对拍 → 开层 |
+| M3 引擎 + L0/L1/L2 | 🔵 代码完成，待手测 | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5） |
 | M4 LLM 全链路 | ⬜ | | 恒关思维链 + 真实端点手测 |
 | M5 语料 + 棋谱 | ⬜ | | |
 | M6 工作室 + 求解器 + 识图 | ⬜ | | |
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
+
+### 2026-10-05 M3 引擎 + L0/L1/L2 重复治理 交付（T3.1~T3.5，待手测）
+
+**完成清单**（每子任务一 commit；①②对拍门先行、全绿后才进 ③④——顺序铁律 ✓）
+- 文档先行（随 T3.1 commit）：03 §4 勘误——键表形状 `[2][15][90]` 为首版起草残留的 TS 双表形状，按同句「uint64 单键」口径勘误为 `[15][90]uint64` + 补 PRNG 移位（Marsaglia 13/7/17）；§6.2 补「Difficulty 0=未设（Go 零值）即缺省 3」；§7 补 wire 缺省约定（前端 `?? 0` → Go 按 0=未设取缺省档）与协议层取消收口；§8 补 ChessAiPlayer fenHistory 引擎侧单源推导口径。
+- T3.1（`feat(m3)` edb63a6，Decision: DR-006）：`internal/engine/engineboard.go` + `zobrist.go`——Electron 版 engineBoard.ts 逐行翻译：`[90]int8` 一维盘（−7..7 带符号编码）、packed 位段走法（`[rank|captured|to|from]`，MVV-LVA 排序键内嵌高位，等级表/PSQ 修正表同式构建）、apply/undo 栈式回退 + kings 缓存、IsCheck 四判定（照面/车炮直线/马位反查/兵）、GenerateMoves(For) 与 rules.Board 语义 1:1（对拍测试锁定盘面/走法集合/captured 位段/apply-undo 往返）、评估固定分 9 例（过河卒 172/沉底车 910/居中炮 466 等）；Zobrist L0 内置 EngineBoard：uint64 单键、固定种子 xorshift64 惰性 sync.Once、FromFen 全量重建 + apply/undo 对称异或严格互逆，五项测试（初始键快照 4 FEN 十六进制定值/重建一致/固定种子 LCG 随机对局 120 步增量===重建+undo 复原/轮走方参与键/吃子改键）。
+- T3.2（`feat(m3)` f61592f，Decision: DR-006）：`internal/engine/search.go` + `chessai.go` + 金标准对拍——search.ts 逐行翻译：negamax+alpha-beta（fail-hard）/qsearch 只延伸吃子（ply<8）/被将军强制全应将（ply<16）/迭代加深超时返回上层完整结果/根节点全窗口（runScored 强制、randomness>0 启用）/每 64 节点 deadline+取消探针；中断按 03 §5 改 **error sentinel** 上抛 iterate 捕获（等价 Dart `_TimeUp`/TS SearchAbort，盘面停留中途状态随实例废弃，TS catch+finally 的不回退语义逐行对应）；**金标准 gate：engine.json 自 Electron tools/golden 逐字节复制（sha256 一致），不传 HistoryFens 时 findBestMoveEx best/bestCp/topK 分数序列逐位一致——快速集 32 子测试全绿后，RUN_SLOW=1 慢速集（initial/midgame d5/d6）8 子测试亦全绿**；chessAi 三接口（FindBestMove/Ex/EvaluateMove）同 commit 落地并过 evaluateMove 金标准条目。
+- T3.3（`test(m3)` cc8531b）：L1 搜索内检测测试（检测代码随 TS 源逐行翻译已在 T3.2 落地，缺省 nil 整段关闭零开销）——缺省两次运行 best/nodeCount 逐位一致；全局历史 count=2/3 惩罚精确值断言（落子后静态评估 −100/−200，ply≤3 命中即剪枝无搜索噪声）；空表路径检测确定性冒烟（摇摆局面）；性能门开/关 nodeCount 差 ≤5%（实测中炮局 4061374 vs 4059333 = **+0.05%**；显式 60s 大超时防 CI 负载假超时——Electron 版教训）。
+- T3.4（`test(m3)` 7524927）：L2 根节点回避测试——`PickAvoidanceMove` 纯函数 5 场景（注入随机源：阈值内随机取一/优劣势系数 0.5·2.0/长将强制变着底线 −500/底线内无候选保留原着/闲着重复交 L3；`AVOID_THRESHOLD_BASE={1:200,2:200,3:100,4:50,5:30}`、`FORCED_CHANGE_FLOOR=500` 逐值搬移）；FindBestMove 集成：不传 HistoryFens 时 best===FindBestMoveEx best（向后兼容铁律）、命中历史返回落子后非重复着法、一步杀优先于回避；三接口行为等价用例（Dart ai_engine_test/ex_test 用例集 15 例）。
+- T3.5（`feat(m3)` 0e3d4f6，Decision: DR-003）：`internal/engine/protocol.go` + `movesource.go` + `app.go` 绑定接线——协议层保留 Worker 消息形状 `{id,type,payload}/{id,ok,result|error}`（铁律 #7），wire 载荷对齐前端 engineProtocol.ts（Move `{from,to,captured?}` / topK `[move,cp]` 二元组 MarshalJSON）；`Runner` 每请求独立 goroutine + ctx 取消注册表（DR-003；无 FIFO 队列——对局页至多一个在途搜索），取消后以 `canceled` 结算（文案对齐前端 CANCELED_ERROR），迟到部分结果不作有效应答；`ChessAiPlayer`（MoveSource 实现）经 `HistoryFensFromBoard` 从 board+history 逐手 UndoMove 回放推导 fenHistory——与页面重放口径逐项等价（测试断言 5 手对局逐项一致 + 两次应手一致）；`app.go` 四 Engine* 绑定替换占位（difficulty 0=未设→缺省档），绑定端到端 13 用例（三类型 roundtrip/取消链路/同 id 重提/无效 FEN/幂等 cancel/被将死 null/wire 形状）。
+
+**顺序铁律执行记录**：T3.1/T3.2 翻译完成 → 先跑金标准对拍（快速集+慢速集全绿，commit f61592f）→ 才提交 T3.3/T3.4（L1/L2 测试）与 T3.5（接线）。金标准对拍期望零改动（未改 testdata/golden/engine.json 一个字节）。
+
+**质量门（全绿）**：`gofmt -l` 空输出；`go vet ./...` 0 问题；`go test ./... -race` 全绿（internal/engine 59 测试函数/57 断言通过项，默认 4 项慢速对拍子测试 SKIP 需 RUN_SLOW=1）；`npm run test:fe` 22 文件 207 用例通过；tsc --noEmit 0 error；eslint 0 error（3 warning 均为 M0 随迁文件历史项）。
+**新增依赖**：无（仅 stdlib：math/rand/v2、slices、sync 等）。
+
+**两轮复审（11 §6.1）**：第一轮语义一致——search.ts/chessAi.ts/engineBoard.ts/moveSource.ts 四文件逐行对照（含 TS catch+finally 的盘面不回退语义、根节点 try/catch 中断语义、`Math.max(remaining,100)` 剩余时限、`AVOID_THRESHOLD_BASE[difficulty] ?? 100` 回退）；翻译缺陷 2 处**当场由测试捕获并修复**（IsCheck 敌王缓存取反——TS `kings[isRed?1:0]` 写反致根节点全过滤；negamax/quiescence/evasions/根四处递归调用漏负号——TS `-this.negamax(...)`，均属 T3.1/T3.2 commit 内修复）。第二轮缺陷扫描——Handle 补显式 ctx 入口检查（取消即回 canceled 不空算）；铁律 #1 import 面机器检查 PASS（internal/engine 仅 stdlib+internal/rules）；`-race` 报告 0。P3×2 记 docs/KNOWN_ISSUES.md（K17 Runner 同 id 并发在途后到者为准/契约内不可达、K18 随机路径跨语言伪随机源不同/randomness=0 对拍面不受影响）。
+
+**性能实测（Go 引擎，WSL2 同机）**：
+| 项目 | Go 实测 | 门限/参照 |
+|---|---|---|
+| 金标准 initial d6 全窗口 | **5.05s** | Dart 80.7s（金标准 note）、TS 版 3.6~25s 量级 |
+| midgame d6 全窗口 | 1.90s | Dart 25.5s |
+| **难度 5（depth 6）初始局面应答** | **1.18s** | 门 ≤7.5s（剪枝模式，09 §2.2） |
+| L1 检测 nodeCount 开销 | +0.05% | 门 ≤5% |
+
+**下一里程碑**：M4（LLM 全链路，恒关思维链）——本里程碑手测验收通过后，新会话逐字粘贴 11 §4.4 启动提示词。
 
 ### 2026-10-05 M2 对战页 + 存储 交付（T2.1~T2.4，待手测）
 
@@ -69,6 +96,45 @@
 
 **复测指引**：重开 `wails dev -tags webkit2_41` → 双人页走 4+ 步（含车/马移动）→ 关闭或手动保存 → 重进：局面与保存时完全一致、步数不变、悔棋可一路退回开局。⚠ 修复前写入的旧存档（fen 为终局语义）不兼容，首次进入若见异常盘面，点"新游戏"后再保存一次即覆盖为新语义。
 
+## 手测指引（M3 待验收）
+
+### A. 桌面人机完整对局（验证门主链路）
+
+`wails dev -tags webkit2_41` 启动（WSLg 弹窗）→ 主页进入「人机对战」：
+
+1. **AI 应手（Go 引擎）**：执红走「炮二平五」→ AI 思考中（spinner）→ AI 应手合法落子、动画正常。高级档（难度 3）应答应在 ~2s 内。
+2. **难度切换**：下拉切「初级」→ AI 应手明显变快且带随机性（同局面重复开局不走法完全一致属正常——低难度随机窗口）；切「大师」→ 应手变慢（≤5s，超时有 deadline 兜底）。
+3. **执黑（AI 先行）**：执方下拉切「执黑」→ 新局由 AI 执红先行；玩家走黑棋，全程无卡死。
+4. **被将军时 AI 解将**：构造对 AI 的将军（如车照将）→ AI 应手应解除将军而非无视。
+5. **状态栏四态**：对局结束/AI 思考中/被将军/等待玩家，随局面正确切换。
+6. **AI 失败防软死锁**（防御面，正常不出现）：若 AI 应手被拒仅 toast 提示，输入不锁死。
+
+### B. 重复治理（DR-006 主链路，人机页）
+
+1. **L2 回避**：构造重复——与 AI 来回互返着法（如「炮二平五/炮5平2」「炮2平5/炮8平5」再「炮8平5/炮2平5」类，使局面第二次出现）→ AI 倾向换着（阈值内非重复着法随机取一），不无限重复拉环；若 AI 最佳为长将形态且历史命中 → 应见其强制变着（底线 −500 内）。
+2. **L3 裁决接线**：若真走出三次重复（k=3，AI 侧自动接受和棋）→ 人机页弹「三次重复局面」确认框（玩家执方弹框；AI 侧不弹）→ 接受=和棋横幅 / 变着继续=关框；长将环 → toast 警告后第 3 次判负；k≥4 强制判和 toast。
+3. **悔棋后重置**：出现重复警告后悔棋 → 警告状态重置。
+
+### C. 自动保存/恢复回归（M3 引擎不触存储，抽测即可）
+
+人机对局数着 → 关窗重进 → 局面/手数恢复正确；将死后重进 → 死局清理开新局。
+
+### D. 浏览器 mock 模式回归（开发兜底）
+
+`npm --prefix frontend run dev:web` → 人机页走子 → AI 应手正常（mock 模式走 TS 引擎内核，与桌面 Go 引擎行为同口径；难度 3 下应手风格可能因随机源不同略有差异——K18 留档，非缺陷）。
+
+### E. 命令验证
+
+```bash
+go test ./... -race -count=1                  # 全绿（含 internal/engine 59 测试函数）
+RUN_SLOW=1 go test ./internal/engine/ -v      # +慢速金标准对拍 8 子测试 + 性能门（≈10s）
+npm --prefix frontend run test:fe             # 207 用例
+gofmt -l . | grep -v node_modules             # 空输出
+go vet ./...                                  # 0 问题
+```
+
+预期已知行为（非 bug）：难度 1/2 的具体应手跨语言不逐位一致（随机窗口，K18）；LLM 对战页仍提示"尚未接入"（M4 占位）；棋谱库/语料/求解入口同前占位（M5/M6）。
+
 ## 手测指引（M2 待验收）
 
 ### A. 桌面双人完整对局（验证门主链路）
@@ -108,7 +174,7 @@ gofmt -l . | grep -v node_modules   # 空输出
 go vet ./...                        # 0 问题
 ```
 
-预期已知行为（非 bug）：人机/LLM 对战页 AI 应手提示"尚未接入"（M3/M4 占位）；棋谱库列表为空（M5）；语料/求解入口同前占位（M5/M6）；凭据槽位在 WSL 无 Secret Service 时保存会提示"已用未加密本地文件存储"（DR-011 如实回报，文件 0600）。
+预期已知行为（非 bug）：LLM 对战页 AI 应手提示"尚未接入"（M4 占位）；棋谱库列表为空（M5）；语料/求解入口同前占位（M5/M6）；凭据槽位在 WSL 无 Secret Service 时保存会提示"已用未加密本地文件存储"（DR-011 如实回报，文件 0600）。人机对战页 AI 应手自 M3 起由 Go 引擎供手（占位提示已消解，手测指引见上方「手测指引（M3 待验收）」）。
 
 ### 2026-10-05 M1 规则内核 + L3 交付（T1.1~T1.5，待手测）
 
