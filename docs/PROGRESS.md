@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M5（语料 + 棋谱）代码完成，待用户手测**——T5.1~T5.6 全部提交（ICCS/PGN/XQF 解析器逐行翻译 + 真样例锚点/往返构造器、99813 局大文件流式索引验收基准、语料扫描/下载器安全全表、绑定接线与前端 base64 字节契约）、两轮复审完成（语义一致性：P1×1 zip 条目错误语义 + P2×2 当场修复，P3×14 留档 KNOWN_ISSUES K23~K30；缺陷扫描自查：铁律 grep 全过）、质量门全绿。手测清单见下方 M5 交付段。
+**M6（工作室 + 求解器 + 识图）代码完成，待用户手测**——T6.1~T6.5 全部落地（internal/solver AND/OR 迭代加深 + uint64 Zobrist 置换表 + ctx 取消、6 验证 FEN 金标准全绿；internal/llm/vision 识图协议逐字 + VisionReader + DR-005 预设恒发关闭参数；app.go Solver*/VisionReadBoard 绑定真接线 + wailsAdapter mime/authSlot 透传；前端工作室三 Tab/演示播放器为 M0 移植资产，本里程碑验证 43+10 用例）、两轮复审完成（语义一致性：design_docs/04 §2/§5 文档同步补丁；缺陷扫描：铁律 grep 全过，Go-TS 边缘差 K31~K33 留档）、质量门全绿。手测清单见下方 M6 交付段。
 
 ## 里程碑总览
 
@@ -18,10 +18,22 @@
 | M3 引擎 + L0/L1/L2 | ✅ | | engine.json 对拍全绿（含慢速集）→ L1/L2 → 人机页 Go 引擎接线（T3.1~T3.5；用户以启动 M4 验收通过） |
 | M4 LLM 全链路 | 🔵 代码完成，待手测 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5） |
 | M5 语料 + 棋谱 | 🔵 代码完成，待手测 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6） |
-| M6 工作室 + 求解器 + 识图 | ⬜ | | |
+| M6 工作室 + 求解器 + 识图 | 🔵 代码完成，待手测 | | AND/OR 求解器 + 6 验证 FEN + 工作室三 Tab + 视觉识图（DR-005）+ 求解辅助 + 演示播放器（T6.1~T6.5） |
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
+
+### 2026-10-05 M6 工作室 + 求解器 + 识图 交付（T6.1~T6.5，待手测）
+
+**完成清单**（internal/solver 2 文件 + 2 测试；internal/llm/vision 2 文件；app.go 绑定接线；wailsAdapter 识图透传；Go 47 新用例 + 前端 241 用例全绿）
+- T6.1（`feat(m6)` e12a207）：`internal/solver/endgameSolver.go`——AND/OR 迭代加深杀棋搜索逐行翻译（OR 节点存在一着必胜/AND 节点全防着皆败/将杀困毙判胜/路径去重近似长将/多解枚举 _enumerate+_extendLine/_findWinningReply/着法排序将军>吃子子力>其他且**稳定排序保 TS 枚举顺序**）；置换表按 04 §2 用 **uint64 Zobrist 本包私有键表**（独立于引擎搜索键，语义等价 TS FEN 串键含轮走方）；超时/取消以哨兵错误沿递归传播（等价 TS SearchTimeout 异常流），ctx 取消探针每 512 节点（04 §5）；`protocol.go` Runner/Handle 同 engine 包 DR-003 口径（goroutine+ctx 注册表、入口/出口双复查取消），wire 对齐前端 solverProtocol.ts（firstMove 以 RawMessage 承接沿 M3 先例）；app.go 三绑定替换占位。测试：**6 验证 FEN 金标准**（多解/无解/超时/已将死/非法 FEN/缺王 + isWinningFirstMove 防御路径，Electron solver.spec.ts 逐项移植）+ ctx 取消 + 两次求解确定性 + 协议 roundtrip/取消链路 + 绑定端到端 3 用例。
+- T6.2（M0 移植资产验证，无新代码）：工作室三 Tab（摆盘/FEN 导入/图片识图）+ 摆盘规则集（setupRules 九宫/士象斜线田字/兵卒底线/数量上限）+ 整体校验五条（studioValidate）与 Electron 版逐位一致（仅 import 路径差）；test/studio 三 spec 22 用例 + solverClient 10 用例全绿；mock 后端（solverProtocol 核心）浏览器模式可用；桌面链路由 T6.1 绑定接通。
+- T6.3（`feat(m6)` d35d36c）：`internal/llm/vision.go`——VISION 协议逐字（system 提示词/JSON 模板提示词/围栏剥除+首 { 末 } 提取/坐标 a-i 行 0-9/未知棋子拦截/**双王硬校验**/turn 大小写不敏感黑方判定/PNG 魔数判 MIME/160 字符截断）；BuildVisionRequest **非流式**多模态（temperature 0.1、max_tokens 4096、无 stream 字段）；VisionReader（单次 120s ctx 截止 × 最多 2 次，HTTP≠200 截体、choices/content 链解、超时文案逐字、耗尽抛 LlmApiError；掩码 Key 经 authSlot 注入真实鉴权 DR-010）；**【DR-005】识图关闭参数按预设恒发无开关**——dashscope→enable_thinking:false、glm-4.5v→thinking:{type:disabled}、其余兜底（与对弈通道同源 ThinkingStyleFor）；app.go VisionReadBoard 真接线（cfg/imageB64/mime/authSlot 四参 → {fen}）+ wailsAdapter 透传 mime+authSlot（M6 唯一前端改动面）。测试：vision 15 用例等价集逐项移植（⑮ 按 DR-005 恒发语义改写）+ Reader httptest mock 7 场景。
+- T6.4（`test(m6)` 1bc510c）：前端 solveAssist 10 用例等价集自 Electron 版移植（SOLVE_ASSIST_SYSTEM 协议面逐字快照/三行格式解析全角冒号容错/首着不在清单追加失败原因重试 2 次/onError/未配置与无着短路；成功用例附断言请求体恒发 enable_thinking:false）。链路全貌：proposeSolveFirstMove（前端 M0 移植）→ App.LlmChat 流式 → 提议 → App.SolverIsWinningFirstMove 裁判（T6.1）→ llmNote 入库；入库 wire 形状（solutions 二维 ICCS/llmNote/solveStatus）M2 存储往返已锁。
+- T6.5（M0 移植资产验证，无新代码）：演示播放器状态机（idle→playing→paused→completed/速度 0.5x/1x/2x/自定义间隔 200-4000ms/循环）puzzleDemo.ts 与 Electron 版**逐字节一致**（diff 全等）+ 11 store 用例；PuzzleDetailView/RecordDetailPage 重放器逐位一致（仅 import 路径差）；语料残局详情与棋谱详情两处演示入口可用。
+- 收尾（`docs(m6)`）：design_docs/04 §2/§5 文档同步补丁（Result 形状沿 Electron TS 契约定稿、Zobrist 键与测试资产口径）；两轮复审（第一轮语义一致性：04/05 §6/§7/08 §4 逐节对拍 + 工作室/播放器 diff 逐位；第二轮缺陷扫描：铁律 grep、-race 全绿、超时/取消用例 5 次重复无 flaky）；质量门全量（gofmt 0 / vet 0 / go test -race 全绿 / tsc 0 错 / npm run lint 0 错 3 条 M3~M4 遗留警告 / vitest 241 用例）。
+
+**性能实测**（WSL2，debug 构建）：FEN-A 双车闷杀 maxPlies=3 <5ms；FEN-B 裸王无解证明 maxPlies=5 <50ms；初始局面 1ms 限时稳定触发 timeout（探针粒度 512 节点）。真实识图耗时依赖端点（qwen-vl-max 关思维链实测 6~14s，沿 Electron 版口径）。
 
 ### 2026-10-05 M5 语料 + 棋谱 交付（T5.1~T5.6，待手测）
 

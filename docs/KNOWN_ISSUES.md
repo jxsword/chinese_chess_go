@@ -63,7 +63,16 @@
 | K29 | P3 | **语料扫描三处边缘差**：① legacy 目录判定 Go 校验 IsDir（TS existsSync 对文件也放行）且空串 legacyBasePath 直接跳过；② 语料根 readdir 失败 Go 返回 exists=true+空分类（前端归一为下载引导），TS 抛错由前端 catch 落到同一引导——UI 结果同型；③ sort.Slice 不稳定 + ReadDir 按名排序，不同子目录同名条目间相对顺序可能与 TS 漂移。 | 无需处置；①是收紧，②UI 结果一致，③排序键本身确定。 |
 | K30 | P3 | **下载器四处边缘差（校验结论不同但拨号均不可达，进度/续传仅极端服务器触发）**：① 空 ETag：TS 会发 `If-Range:""` 启用续传，Go 判空不启用（更安全）；② Content-Length 非数字：Go 记 -1（进度 indeterminate），TS 传 NaN；③ WHATWG `new URL` 对 host 百分号解码/规范化（`127%2e0%2e0%2e1` 被拒），Go `url.Parse` 不解码放行——拨号同样失败；④ 并发 CorpusDownload 同 URL 临时文件竞争与 TS 同形，UI 下载按钮单飞（disabled）兜底。 | 无需处置。 |
 
+## M6（工作室 + 求解器 + 识图）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K31 | P3 | **求解器置换表键 Zobrist（Go）vs 完整 FEN 串（TS）**：04 §2 明定的 Go 版差异——uint64 键表独立于引擎；语义等价（键含轮走方，FEN 亦含），实际行为差仅在理论哈希碰撞窗口（本包私有 64 位键表，工程上可忽略）；路径去重/表项语义逐行一致。 | 无需处置；6 验证 FEN 与确定性用例锁定行为一致。 |
+| K32 | P3 | **识图错误消息两处微差**：① 非法棋子条目错误内的 `JSON.stringify(record)` 键序——Go map 序列化为字母序，TS 为插入序（中文前缀与字段值逐字一致）；② requestOnce 响应体 io.LimitReader 32MB 上限，TS 无上限——超大响应 Go 截断为"响应不是合法 JSON"进重试，实际端点响应远小于该值。 | 无需处置；测试以错误前缀口径断言，不锁键序。 |
+| K33 | P3 | **识图无取消通道（对齐 Electron 版）**：VisionReadBoard 绑定阻塞至结算，应用退出（父 ctx 取消）时在途识图以"连接失败/超时"错误结算即弃；单次 120s × 2 次上界与 TS AbortController 同型。UI 侧"识别中"按钮 disabled 防重入（M0 移植），无中途取消入口与原版一致。 | 无需处置；如需中途取消先在 Electron 版立规格再对齐。 |
+
 ## 已修复（保留记录）
+
 
 | # | 级别 | 描述 | 修复 |
 |---|---|---|---|
