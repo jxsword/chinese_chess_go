@@ -33,6 +33,9 @@ func inOpponentHalf(row int, side Side) bool { return !inOwnHalf(row, side) }
 //
 // DR-006：Zobrist 键不在此处（引擎内部单源，见 03 §4）——规则层保持无哈希，
 // L3 用 FEN 字符串比较（02 §7），与 Electron 版口径一致。
+//
+// 非并发安全：ApplyMove/UndoMove/合法性模拟会原地改盘。跨 goroutine 传递
+// 用 Copy() 快照（与原版 Worker 快照传参口径一致）。
 type Board struct {
 	grid    BoardGrid
 	redTurn bool

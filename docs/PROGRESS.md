@@ -5,15 +5,15 @@
 
 ## 当前状态
 
-**M0（工程骨架）待用户手测验收**——T0.1/T0.2/T0.3 全部完成、质量门全绿（见下方 M0 交付记录）；按 11 §5 暂停等待手动验收。
+**M1（规则内核 + L3）待用户手测验收**——T1.1~T1.5 全部完成、质量门全绿、§6 两轮复审无 P0/P1（见下方 M1 交付记录）；按 11 §5 暂停等待手动验收。
 
 ## 里程碑总览
 
 | 里程碑 | 状态 | tag | 备注 |
 |---|---|---|---|
 | 文档集（首次提交） | ✅ | — | 00~11 全套 + AGENTS.md + DR-001~006 |
-| M0 工程骨架 | 🔵 代码完成，待手测 | — | go.mod + Wails + frontend 移植 + CI（验证门取证见下） |
-| M1 规则内核 + L3 | ⬜ | | 金标准对拍 |
+| M0 工程骨架 | ✅+用户 | — | go.mod + Wails + frontend 移植 + CI（用户以启动 M1 验收通过） |
+| M1 规则内核 + L3 | 🔵 代码完成，待手测 | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5） |
 | M2 对战页 + 存储 | ⬜ | | fenHistory 四收口 + 裁决接线 |
 | M3 引擎 + L0/L1/L2 | ⬜ | | engine.json 对拍 → 开层 |
 | M4 LLM 全链路 | ⬜ | | 恒关思维链 + 真实端点手测 |
@@ -22,6 +22,23 @@
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
+
+### 2026-10-05 M1 规则内核 + L3 交付（T1.1~T1.5，待手测）
+
+**完成清单**（每子任务一 commit，红→绿）
+- 测试基建（`test(m1)` 0cf7ec0）：金标准 `fen.json`(19)/`moves.json`(16 案例)/`notation.json`(21 案例) 自 Electron 版 tools/golden **逐字节复制**至 `testdata/golden/`（sha256 一致）+ `tools/golden-fetch.md` 来源说明（09 §3；engine.json 随 M3 引入）。
+- T1.1（`feat(m1)` c44979f）：position/piece/move/fen 逐行翻译 Electron 版 piece.ts/position.ts/move.ts/fen.ts + Board 构造/序列化基座；fen.json 往返对拍全绿 + fen.spec 6 用例。
+- T1.2（`feat(m1)` 9e0bd89）：board.ts 剩余部分逐行翻译——七棋种伪合法走法（马腿/象眼/炮架/兵过河/九宫）、willBeInCheckAfter 原地模拟自将过滤、IsCheck（含将帅照面）、checkmate/stalemate、apply/undo 互逆；moves.json **集合对拍 16 案例全绿**（含初始局面 44 着法/照面负例/困毙 status）+ board.spec 走法生成 13 用例。
+- T1.3（`test(m1)` ed788bf）：负例用例——被牵制车自将过滤/非轮走方空表/照面无遮蔽过滤与有遮蔽合法/单车将死/炮牵制困毙（board.spec 对应段 9 用例）。
+- T1.4（`feat(m1)` 6ecdfe9）：中文纵线记法 moveNotation.ts 逐行翻译（红汉字/黑阿拉伯数字、平/进退/斜走三分支）；notation.json **逐字对拍 21 案例全绿** + moveNotation.spec 7 用例。
+- T1.5（`feat(m1)` af054d3，**Decision: DR-006**）：L3 重复裁决 JudgeRepetition——repetitionJudge.ts 逐行翻译（02 §7 全规格：无状态纯函数/classifyCycle 将军归责+结果缓存/k=2 单方警告且闲着环·照面环不警告/k=3 判负·不变作和·判和/k≥4 强制和）；SWING/QUIET/FACING **三类环 9 用例与 Electron 版 repetitionJudge.spec.ts 期望逐条一致**（跨语言同 FEN 同裁决）+ 悔棋截断回滚用例。【DR-006 检查点：L3 已在本里程碑落地 ✓】
+
+**质量门（全绿）**：`gofmt -l` 空输出；`go vet ./...` 0 问题；`go test ./... -race` 通过；`npm run test:fe` 21 文件 202 用例通过（M1 未触前端，回归确认）。
+**Go 侧用例**：internal/rules 84 用例全绿（含金标准 56 案例：19 FEN 往返 + 16 走法集合 + 21 记法逐字；单测 28：fen 6 + board 22 + 记法 7 + L3 9）。
+**两轮复审（11 §6.1）**：第一轮逐文件对照 TS 版函数面（33 导出符）与行为分支——语义一致，无 P0/P1；第二轮缺陷扫描——纯函数库无竞态/取消面，Board 非并发安全已加注释（跨 goroutine 用 Copy 快照），铁律 #1 import 面机器检查=仅 stdlib（fmt/strconv/strings）。P3×5 记 docs/KNOWN_ISSUES.md（K7~K11：buildFen 接口收敛依据、BoardGrid 形态、辅助函数未导出、L3 无效 FEN 不可达分支、记法退化输入）。
+**性能实测**：无（M1 无算法面；L3 为 FEN 串比较纯函数，n≤数百微秒级，03 引擎 L0/L1/L2 自 M3 起记录）。
+
+**下一里程碑**：M2（对战页 + 存储，fenHistory 四收口 + UI 裁决接线）——本里程碑手测验收通过后，新会话逐字粘贴 11 §4.3 启动提示词。
 
 ### 2026-10-05 M0 工程骨架交付（T0.1/T0.2/T0.3，待手测）
 
@@ -68,13 +85,15 @@
 - 测试取证：google-chrome（headless 冒烟）、xwd（窗口取证）；playwright-core 借用 `/home/ssy/proj/chinese_chess_electron/node_modules`（M7 E2E 落地时再入依赖）。
 - **安装权限约定（用户指示）**：开发/构建缺包时代理应自行安装；本机 `sudo` 需密码，**缺包时代理给出确切命令通知用户手动执行**（go/npm 用户态操作不受影响）。M7 打包工具（nfpm/appimagetool/nsis）届时按此办理。
 
-## 手测指引（M0 待验收）
+## 手测指引（M1 待验收）
 
-1. **桌面窗口（wails dev）**：在仓库根目录执行 `wails dev -tags webkit2_41` → WSLg 弹出「中国象棋 Ultra」窗口，主页 7 入口可见可点击。
-2. **双人页对局**：主页 →「双人对弈」→ 点选红炮（h 炮）→ 点击 e 线目标（炮二平五）→ 棋子动画落位、回合变黑方、步数 +1；「悔棋」回退、「新游戏」有确认框。
-3. **其余页面空态**：人机对战页可进（AI 应手会提示引擎未接入——M3 前占位，属预期）；人机对战（大模型）/大模型对战页配置卡正常显示；残局选关显示「未找到本地棋谱语料 + 下载引导」（mock）；残局工作室三 Tab 可切换；棋谱库空列表。
-4. **浏览器 mock 模式**：`npm --prefix frontend run dev:web` → http://localhost:5173 重复 2~3 的导航。
-5. **全局设置**：主页右上 ⚙ 打开弹窗，开关可切换、关闭后不报错。
-6. 如发现 bug：列出现象（页面 + 操作步骤），按 11 §5/§6.2 修复回归后再验收。
+M1 为纯 Go 规则内核（internal/rules），**无 UI 面**——走子/悔棋/照面禁手/重复裁决的界面级手测在 M2 双人页落地后进行。本里程碑手测以命令验证为主：
+
+1. **全量规则测试**：`go test ./internal/rules/ -v -count=1` → 84 用例全绿（金标准 56 案例与 Electron/Vitest 版共用同一 JSON 期望值，跨语言逐位可比）。
+2. **带竞态检测的全仓测试**：`go test ./... -race` → 全绿。
+3. **前端回归**（M1 未触前端，确认无回归）：`npm --prefix frontend run test:fe` → 202 用例通过。
+4. **金标准来源复核**（可选）：`sha256sum testdata/golden/*.json` 与 Electron 版 `/home/ssy/proj/chinese_chess_electron/tools/golden/` 一致（基建 commit 留档）。
+5. **L3 三类环裁决抽查**（可选）：`go test ./internal/rules/ -run TestJudgeRepetition -v` → k=2 单方长将警告/照面环不警告、k=3 判负·不变作和·判和、k=4 强制和、悔棋截断回到 k=2。
+6. 如发现问题：列出现象与复现命令，按 11 §5/§6.2 处理（禁止删/跳用例变绿）。
 
 预期已知行为（非 bug）：AI/LLM/语料/保存相关动作提示"尚未接入"（占位绑定，M2~M6 逐个落地）；桌面窗口内的控制台可能打印自动保存未处理拒绝（K3）。

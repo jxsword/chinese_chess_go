@@ -17,7 +17,8 @@ var han = [9]string{"九", "八", "七", "六", "五", "四", "三", "二", "一
 func stepLabel(steps int) string { return han[9-steps] }
 
 // ChineseNotation 把 (piece, from, to) 序列化为带颜色与中文坐标的记法字符串
-// （move_notation.dart:9-39）。
+// （move_notation.dart:9-39）。前置：from ≠ to（真实走法恒成立；退化输入
+// 未定义——原版同场景产出含 undefined 的废串）。
 func ChineseNotation(piece *Piece, from, to Position) string {
 	red := IsRedSide(piece.Side)
 	colLabel := func(c int) string {
