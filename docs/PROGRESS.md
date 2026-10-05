@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M1（规则内核 + L3）待用户手测验收**——T1.1~T1.5 全部完成、质量门全绿、§6 两轮复审无 P0/P1（见下方 M1 交付记录）；按 11 §5 暂停等待手动验收。
+**M2（对战页 + 存储）进行中**——T2.1（sqlite DAO）、T2.2（设置/凭据）已提交，T2.3（GameVm fenHistory 四收口随迁验证）通过；T2.4 绑定层接线进行中。
 
 ## 里程碑总览
 
@@ -13,8 +13,8 @@
 |---|---|---|---|
 | 文档集（首次提交） | ✅ | — | 00~11 全套 + AGENTS.md + DR-001~006 |
 | M0 工程骨架 | ✅+用户 | — | go.mod + Wails + frontend 移植 + CI（用户以启动 M1 验收通过） |
-| M1 规则内核 + L3 | 🔵 代码完成，待手测 | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5） |
-| M2 对战页 + 存储 | ⬜ | | fenHistory 四收口 + 裁决接线 |
+| M1 规则内核 + L3 | ✅ | — | 金标准对拍 56 案例全绿 + L3 三类环裁决（T1.1~T1.5；用户以启动 M2 验收通过） |
+| M2 对战页 + 存储 | 🔵 | | fenHistory 四收口 + 裁决接线（T2.1~T2.3 完成，T2.4 进行中） |
 | M3 引擎 + L0/L1/L2 | ⬜ | | engine.json 对拍 → 开层 |
 | M4 LLM 全链路 | ⬜ | | 恒关思维链 + 真实端点手测 |
 | M5 语料 + 棋谱 | ⬜ | | |
@@ -22,6 +22,12 @@
 | M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
 
 ## 变更日志
+
+### 2026-10-05 M2 对战页 + 存储（T2.1~T2.4，进行中）
+
+- T2.1（`feat(m2)`）：internal/storage/db.go——sqlite DAO 逐字段对照 Electron 版 db.ts（07 §1.1 两表 Schema/迁移 V1 legacy 标记/裸 upsert/按模式分桶/game_records 解码链含 x:"" 存量修复与 null 透传）；gameDao.spec 全量 **18 用例**移植为 Go 表驱动（saved_games 5 + 分模式 4 + 迁移 1 + 棋谱库 6 + 回归 2）；07 §1 文件名勘误为 `chinese_chess_ultra_go.sqlite`。
+- T2.2（`feat(m2)`，Decision: DR-005）：internal/storage/settings.go（JSON settings.json 替代 electron-store；global_auto_save 缺省 true；llm_settings_* 越界 load 时 clamp，语义逐字对照 llmSettingsFromRaw）+ credentials.go（keyring 三槽位 + credentials.enc 明文回退 0600 原子写，沿 electron-DR-011；掩码与回写合并，沿 electron-DR-013；槽位 JSON 无 disableThinking）。
+- T2.3（`docs(m2)`）：GameVm 为 M0 整体移植资产（frontend/src/stores/gameVm.ts），fenHistory 四收口点（初始/newGame 重置 · executeMove push · undoOnceInternal pop · restore 重放采集含跳脏不 push）与 agreeDraw/resign(draw) 均已在内；本任务为随迁验证——`gameVmFenHistory.spec.ts` 7 用例（含 restore 跳脏）+ `autoSaveRestore.spec.ts` 12 用例 + `repetitionJudge.spec.tsx` 3 接线用例，前端 21 文件 202 用例全绿。【DR-006 检查点：前端四收口与裁决接线资产 ✓，绑定层随 T2.4 接通】
 
 ### 2026-10-05 M1 规则内核 + L3 交付（T1.1~T1.5，待手测）
 
