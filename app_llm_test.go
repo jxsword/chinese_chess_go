@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jxsword/chinese_chess_go/internal/llm"
+	"github.com/jxsword/chinese_chess_go/internal/storage"
 )
 
 // llmCollector 事件收集器（llm.ProxySender 实现）。
@@ -312,5 +313,75 @@ func TestLlmTestConnectionConfigShape(t *testing.T) {
 	}
 	if config.Preset != "智谱 GLM" || config.Model != "glm-4-flash" {
 		t.Fatalf("配置形状不符：%+v", config)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T6.3 视觉识图绑定（05 §7）：mock 多模态端点全链路——wire 形状 {fen}、
+// 掩码 Key 经 authSlot 注入（DR-010）、恒发关闭参数断言（DR-005，绑定层透传）。
+// ---------------------------------------------------------------------------
+
+func TestVisionReadBoardBindingEndToEnd(t *testing.T) {
+	var authHeader string
+	var bodyMap map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&bodyMap)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{
+					"content": `{"turn":"red","pieces":[{"col":"d","row":"0","piece":"k"},{"col":"e","row":"9","piece":"K"}]}`,
+				},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.initServices(t.TempDir(), t.TempDir()+"/dao.sqlite", newFakeKeyring(false))
+	app.credentials.Set("llm_config_assistant", storage.SlotConfig{
+		BaseURL: server.URL, APIKey: "sk-real-vision", Model: "qwen-vl-max", Preset: "通义千问 VL（阿里云百炼）",
+	})
+
+	result, err := app.VisionReadBoard(map[string]any{
+		"baseUrl": server.URL,
+		"apiKey":  "****real", // 掩码 Key（secure.get 回读语义）
+		"model":   "qwen-vl-max",
+		"preset":  "通义千问 VL（阿里云百炼）",
+	}, "QUJD", "image/png", "llm_config_assistant")
+	if err != nil {
+		t.Fatalf("VisionReadBoard 报错: %v", err)
+	}
+	fen, ok := result["fen"].(string)
+	if !ok || !strings.HasPrefix(fen, "3k5/9/9/9/9/9/9/9/9/4K4") {
+		t.Fatalf("结果应含 {fen}: %v", result)
+	}
+	if authHeader != "Bearer sk-real-vision" {
+		t.Errorf("掩码 Key 应由槽位注入真实鉴权: %q", authHeader)
+	}
+	if bodyMap["enable_thinking"] != false {
+		t.Errorf("识图请求应恒发 enable_thinking:false（dashscope 预设）: %v", bodyMap["enable_thinking"])
+	}
+	if _, hasStream := bodyMap["stream"]; hasStream {
+		t.Errorf("识图请求应非流式")
+	}
+	// 存储不可用/未知槽位：注入空 Key（本地网关语义），请求仍发出但不带鉴权。
+	app2 := NewApp()
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("空 Key 不应带鉴权头")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": `{"pieces":[]}`}}},
+		})
+	}))
+	defer server2.Close()
+	// 未配置解析器（resolveApiKey 恒空）：掩码 Key → 空鉴权。
+	if _, err := app2.VisionReadBoard(map[string]any{
+		"baseUrl": server2.URL, "apiKey": "****xxxx", "model": "m", "preset": "",
+	}, "QUJD", "image/jpeg", "llm_config_assistant"); err != nil && !strings.Contains(err.Error(), "双方王数量异常") {
+		t.Fatalf("识别管线错误应如实上抛: %v", err)
 	}
 }

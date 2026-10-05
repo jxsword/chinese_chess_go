@@ -51,7 +51,7 @@ interface WailsApp {
   LlmChat(req: { requestId: string; url: string; headers: Record<string, string>; body: string; authSlot?: string }): Promise<void>
   LlmCancel(requestID: string): Promise<void>
   LlmTestConnection(config: unknown, authSlot: string): Promise<LlmTestConnectionResult>
-  VisionReadBoard(config: unknown, imageBase64: string): Promise<VisionReadBoardResult>
+  VisionReadBoard(config: unknown, imageBase64: string, mime: string, authSlot?: string): Promise<VisionReadBoardResult>
   // ---- db ----
   DbSaveGame(req: { mode: string; fen: string; moves: number[][] }): Promise<void>
   DbLoadLatest(mode: string): Promise<SavedGame | null>
@@ -141,7 +141,9 @@ export function createWailsApi(): WindowApi {
     },
     vision: {
       readBoard: (req: VisionReadBoardRequest) =>
-        app.VisionReadBoard(req.config, req.imageBase64)
+        // mime + authSlot 透传（对齐 Electron 版 vision:readBoard 请求形状：
+        // 魔数判 MIME 在前端完成、掩码 Key 由 Go 侧按槽位注入真实鉴权 DR-010）。
+        app.VisionReadBoard(req.config, req.imageBase64, req.mime, req.authSlot)
     },
     db: {
       saveGame: (req) => app.DbSaveGame({ mode: req.mode, fen: req.fen, moves: req.moves }),

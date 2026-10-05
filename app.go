@@ -586,11 +586,34 @@ func (a *App) LlmTestConnection(cfg map[string]any, authSlot string) (map[string
 	return map[string]any{"ok": result.OK, "message": result.Message}, nil
 }
 
-// VisionReadBoard 视觉识图（多模态非流式；M6 接入，识图请求恒发关闭参数）。
-func (a *App) VisionReadBoard(cfg map[string]any, imageB64 string) (map[string]any, error) {
-	_ = cfg
-	_ = imageB64
-	return nil, errMilestone("视觉识图", "M6")
+// VisionReadBoard 视觉识图（多模态非流式，M6 接入，05 §7；识图请求恒发关闭
+// 参数按预设映射——dashscope→enable_thinking:false、glm-4.5v→thinking:disabled，
+// DR-005）。cfg 为渲染层 LlmEndpointConfig（掩码 Key），掩码时经 authSlot 注入
+// 真实鉴权（DR-010 同机制）；失败以 error reject（已重试 N 次仍失败：…）。
+func (a *App) VisionReadBoard(cfg map[string]any, imageB64, mime, authSlot string) (map[string]any, error) {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var config llm.LlmEndpointConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, err
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reader := llm.NewVisionReader(llm.VisionReaderOptions{ResolveAPIKey: a.resolveApiKey})
+	result, err := reader.ReadBoard(ctx, llm.VisionReadBoardRequest{
+		Config:      config,
+		ImageBase64: imageB64,
+		Mime:        mime,
+		AuthSlot:    authSlot,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"fen": result.Fen}, nil
 }
 
 // EngineFindBestMove 对局 AI 应手（M3：internal/engine 逐行翻译 TS 版；
