@@ -14,6 +14,7 @@ package storage
 // 纯 Go：禁止 import Wails / net/http / 前端符号（铁律 #1）。
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -280,7 +281,7 @@ func ScanPgnIndex(path string, maxGames int) ([]PgnIndexEntry, error) {
 // ReadPgnGameText 读取索引指向的单局文本并返回（corpus_scanner.dart:210-230）。
 func ReadPgnGameText(path string, entry PgnIndexEntry) (string, error) {
 	if entry.Offset < 0 || entry.Length < 0 {
-		return "", os.ErrInvalid
+		return "", errors.New("PGN 索引越界")
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -292,7 +293,7 @@ func ReadPgnGameText(path string, entry PgnIndexEntry) (string, error) {
 		return "", err
 	}
 	if entry.Offset >= st.Size() {
-		return "", os.ErrInvalid
+		return "", errors.New("PGN 索引越界")
 	}
 	length := entry.Length
 	if length > st.Size()-entry.Offset {

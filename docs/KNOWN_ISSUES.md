@@ -50,6 +50,19 @@
 | K21 | P3 | **流式 OnChunk 与取消结算的纳秒级 TOCTOU 窗口**：blocked 检查（锁内）与 OnChunk 回调（锁外）之间并发 Cancel 完成结算时，`Cancel()` 返回后仍可能收到一个 chunk。TS 版事件经 IPC 异步转发同型窗口天然存在；渲染层按 requestId 二次收口（00 §3.2 主语义）为设计第二道防线。 | 无需处置；锁内回调用户代码有死锁风险，不采纳收紧方案。 |
 | K22 | P3 | **chunk.error 消息内 JSON 键序差**：`流式响应错误: {…}` 的 JSON 序列化 Go（map 字母序）与 TS（对象插入序）键排列可能不同——前缀与 message 内容逐字一致，整体串仅键序差。 | 无需处置；测试以"含前缀 + 含 message"口径断言，不锁键序。 |
 
+## M5（语料 + 棋谱）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K23 | P2 | **ParserCancel 无"请求到达前"粘性记忆**：TS parser.worker 用 `cancelledIds` 记住先于 parseBatch 到达的 cancel，随后同 id 请求立即回 canceled；Go Runner（DR-003 goroutine 模型）无此粘性记忆，Cancel 先于 Submit 到达时为 no-op，批次会完整跑完。绑定层架构下该窗口实际不可达：前端 parserClient 先 post parseBatch（Submit 即注册 ctx）后才可能 cancel，且 cancel 已同步 reject pending 表——批次跑完只是浪费 ≤128 文件的解析，进度/结果按 requestId 丢弃（00 §3.2 主语义兜底），与 engine.Runner M3 先例（K17）同型。 | 无需处置；粘性集合在无界 id 下泄漏内存，不采纳。 |
+| K24 | P3 | **zip 条目错误语义两处刻意偏离（标准库替换的代价，均加强安全）**：① archive/zip 读取时校验 CRC——坏条目 Go 跳过并计数，TS 手写解析不校验照写坏数据再 count++；② 加密/不支持压缩方法条目 Go 在迭代中遇到才抛错（此前条目已写入；atomic 路径 staging 会整体清理，仅 legacy 符号链接直解压路径可能留半成品），TS 在写任何文件前整体抛错。 | 无需处置；①由 TestExtractZipCorruptEntrySkippedNotAborts 锁定，②语料包场景不可能出现加密条目。 |
+| K25 | P3 | **PGN 正则 `\s` 与 JS Unicode 空白差**：JS `\s` 匹配 U+00A0/U+3000/U+FEFF 等，Go（RE2 + unicode.IsSpace 全文去空白）标签行前缀/`序号.`间隔含此类字符时行为可能分叉；PGN 实际语料为 ASCII 空白。 | 无需处置；语料实测无影响。 |
+| K26 | P3 | **DecodeUtf8Lossy 替换符粒度差**：Go `strings.ToValidUTF8` 连续一段非法字节产 1 个 U+FFFD，TextDecoder 按 WHATWG 规则逐非法子串产出；仅影响含坏字节的标签值/PGN 正文展示。 | 无需处置；文件名/正文为人类可读文本。 |
+| K27 | P3 | **前/后/中省略列号分支多列歧义 token 的 from 选择序**：TS byCol 为 Map（列插入序确定 matches 覆盖序），Go map 随机序——两个候选 from 合法走到同一 to 的病态局面（如同方 4 车）下实际选中的 from 可能与 TS 不同；可唯一消解的常规 token 不受影响（len==1 判定）。 | 无需处置；token 本身歧义，语义无对错。 |
+| K28 | P3 | **readXqfString 越界分支差**：`lenOffset+1+len > len(b)` 时 Go 返回空串，TS subarray 收缩到 EOF 后仍解码剩余字节；受 ParseXqf 最小长度（0x400+8）约束实际不可达。 | 无需处置。 |
+| K29 | P3 | **语料扫描三处边缘差**：① legacy 目录判定 Go 校验 IsDir（TS existsSync 对文件也放行）且空串 legacyBasePath 直接跳过；② 语料根 readdir 失败 Go 返回 exists=true+空分类（前端归一为下载引导），TS 抛错由前端 catch 落到同一引导——UI 结果同型；③ sort.Slice 不稳定 + ReadDir 按名排序，不同子目录同名条目间相对顺序可能与 TS 漂移。 | 无需处置；①是收紧，②UI 结果一致，③排序键本身确定。 |
+| K30 | P3 | **下载器四处边缘差（校验结论不同但拨号均不可达，进度/续传仅极端服务器触发）**：① 空 ETag：TS 会发 `If-Range:""` 启用续传，Go 判空不启用（更安全）；② Content-Length 非数字：Go 记 -1（进度 indeterminate），TS 传 NaN；③ WHATWG `new URL` 对 host 百分号解码/规范化（`127%2e0%2e0%2e1` 被拒），Go `url.Parse` 不解码放行——拨号同样失败；④ 并发 CorpusDownload 同 URL 临时文件竞争与 TS 同形，UI 下载按钮单飞（disabled）兜底。 | 无需处置。 |
+
 ## 已修复（保留记录）
 
 | # | 级别 | 描述 | 修复 |

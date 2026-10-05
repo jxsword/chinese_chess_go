@@ -123,8 +123,7 @@ func isBlockedHost(host string) bool {
 		return isBlockedV4([]int{
 			int(asInt>>24) & 0xff, int(asInt>>16) & 0xff, int(asInt>>8) & 0xff, int(asInt) & 0xff,
 		})
-	}
-	// IPv6 字面量：拒绝环回、链路本地（fe80::/10）、唯一本地（fc00::/7）。
+	} // IPv6 字面量：拒绝环回、链路本地（fe80::/10）、唯一本地（fc00::/7）。
 	// （Go url.Hostname() 已去 []，h 即裸地址。）
 	if strings.Contains(host, ":") {
 		h := host
@@ -174,11 +173,13 @@ func isBlockedV4(octets []int) bool {
 }
 
 // parseIntegerHost 解析十进制/十六进制整数形式的 host；非整数形式返回 false（corpus_paths.dart:118-129）。
+// 匹配整数形式但溢出 64 位时返回 MaxUint64（> 0xffffffff → 拒绝，对齐 TS
+// parseInt 得大数后的拒判定——SSRF 纵深）。
 func parseIntegerHost(host string) (uint64, bool) {
 	if regexp.MustCompile(`^\d+$`).MatchString(host) {
 		n, err := strconv.ParseUint(host, 10, 64)
 		if err != nil {
-			return 0, false
+			return ^uint64(0), true
 		}
 		return n, true
 	}
@@ -186,7 +187,7 @@ func parseIntegerHost(host string) (uint64, bool) {
 	if len(lower) > 2 && strings.HasPrefix(lower, "0x") && regexp.MustCompile(`^0x[0-9a-f]+$`).MatchString(lower) {
 		n, err := strconv.ParseUint(lower[2:], 16, 64)
 		if err != nil {
-			return 0, false
+			return ^uint64(0), true
 		}
 		return n, true
 	}
@@ -531,19 +532,21 @@ func removeDirRetry(path string) {
 }
 
 // extractZip 解压本地 zip 文件到 targetDir（含 zip-slip 防护，corpus_downloader.dart:253-311）。
-// Windows 保留名/尾随点空格条目与写入异常条目跳过并计数，不中断整体解压。
+// Windows 保留名/尾随点空格条目、符号链接条目与写入异常条目跳过并计数，
+// 不中断整体解压；目录条目落盘建目录（失败才计 skip）；单条目内容损坏
+// （CRC/截断）跳过并计数，不中断整体（对齐 TS 逐条目 try/catch）。
 func extractZip(zipPath, targetDir string) (CorpusDownloadResult, error) {
 	count := 0
 	skipped := 0
 	skip := func() { skipped++ }
-	err := zipEntries(zipPath, func(entry ZipEntryLite, data []byte) error {
-		if entry.IsDirectory || entry.IsSymlink {
-			skip()
+	err := zipEntries(zipPath, func(entry ZipEntryLite, data []byte, entryErr error) error {
+		if entryErr != nil {
+			skip() // 条目内容损坏：跳过并计数
 			return nil
 		}
 		name := strings.ReplaceAll(entry.Name, "\\", "/")
 		// 符号链接条目一律拒绝；绝对路径与 .. 段一律拒绝。
-		if strings.HasPrefix(name, "/") || containsSegment(name, "..") {
+		if entry.IsSymlink || strings.HasPrefix(name, "/") || containsSegment(name, "..") {
 			skip()
 			return nil
 		}
@@ -567,6 +570,13 @@ func extractZip(zipPath, targetDir string) (CorpusDownloadResult, error) {
 		}
 		// 词法重组（已拒绝 .. / 盘符，不可能逃出目标目录）。
 		outPath := filepath.Join(targetDir, filepath.Join(segments...))
+		if entry.IsDirectory {
+			// 目录条目：落盘建目录（成功不计 skipped；对齐 TS mkdirSync 语义）。
+			if err := os.MkdirAll(outPath, 0o755); err != nil {
+				skip()
+			}
+			return nil
+		}
 		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 			skip() // 同名冲突（先文件后目录）、权限、磁盘满等单条目异常：跳过并计数
 			return nil

@@ -508,3 +508,52 @@ func TestDownloadCorpusRejectsIllegalURL(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestExtractZipCorruptEntrySkippedNotAborts(t *testing.T) {
+	// P1 修复回归：单条目内容损坏（CRC 校验失败）跳过并计数，不中断整体解压
+	// （对齐 TS 版逐条目 try/catch；标准库 CRC 校验使坏条目被跳过而非照写坏数据）。
+	tmp := t.TempDir()
+	good := buildTestZip(t, []testZipEntry{
+		{name: "a.xqf", content: bytesOf("data-a")},
+		{name: "b.xqf", content: bytesOf("data-b")},
+	})
+	// 破坏第一个条目 payload 中间一个字节（LFH 30 字节 + 文件名 5 字节之后）。
+	corrupt := append([]byte{}, good...)
+	corrupt[30+5+1] ^= 0xff
+	zipPath := filepath.Join(tmp, "corrupt-entry.zip")
+	if err := os.WriteFile(zipPath, corrupt, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "corpus")
+	result, err := extractZip(zipPath, target)
+	if err != nil {
+		t.Fatalf("坏条目不应中止整体解压: %v", err)
+	}
+	if result.Extracted != 1 || result.Skipped != 1 {
+		t.Fatalf("result = %+v, 期望 1/1", result)
+	}
+	if _, err := os.Stat(filepath.Join(target, "b.xqf")); err != nil {
+		t.Fatal("完条目 b.xqf 应落盘")
+	}
+}
+
+func TestExtractZipDirectoryEntriesMaterialized(t *testing.T) {
+	// P2 修复回归：目录条目落盘建目录（不计 extracted/skipped；失败才 skip）。
+	tmp := t.TempDir()
+	zipPath := writeTestZip(t, tmp, "dirs.zip", []testZipEntry{
+		{name: "XQF-象棋谱大全/残局/", content: nil},
+		{name: "XQF-象棋谱大全/残局/a.xqf", content: bytesOf("data-a")},
+	})
+	target := filepath.Join(tmp, "corpus")
+	result, err := extractZip(zipPath, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extracted != 1 || result.Skipped != 0 {
+		t.Fatalf("result = %+v, 期望 1/0（目录不计数）", result)
+	}
+	st, err := os.Stat(filepath.Join(target, "XQF-象棋谱大全", "残局"))
+	if err != nil || !st.IsDir() {
+		t.Fatalf("目录条目应落盘: %v", err)
+	}
+}
