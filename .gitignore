@@ -119,3 +119,7 @@ zcode.json
 
 # Wails 生成物（绑定桩与运行时，不依赖它，适配层自带类型声明）
 frontend/wailsjs/
+
+# Playwright E2E 产物（M7）
+frontend/test-results/
+frontend/playwright-report/
