@@ -71,6 +71,14 @@
 | K32 | P3 | **识图错误消息两处微差**：① 非法棋子条目错误内的 `JSON.stringify(record)` 键序——Go map 序列化为字母序，TS 为插入序（中文前缀与字段值逐字一致）；② requestOnce 响应体 io.LimitReader 32MB 上限，TS 无上限——超大响应 Go 截断为"响应不是合法 JSON"进重试，实际端点响应远小于该值。 | 无需处置；测试以错误前缀口径断言，不锁键序。 |
 | K33 | P3 | **识图无取消通道（对齐 Electron 版）**：VisionReadBoard 绑定阻塞至结算，应用退出（父 ctx 取消）时在途识图以"连接失败/超时"错误结算即弃；单次 120s × 2 次上界与 TS AbortController 同型。UI 侧"识别中"按钮 disabled 防重入（M0 移植），无中途取消入口与原版一致。 | 无需处置；如需中途取消先在 Electron 版立规格再对齐。 |
 
+## M7（评估 + 打包发布）
+
+| # | 级别 | 描述 | 处置计划 |
+|---|---|---|---|
+| K34 | P3 | **Windows release 矩阵 go test 无 -race**：GitHub windows runner 无默认 CGO/gcc 工具链，race 检测器不可用；release.yml 中 Windows 退化为普通 `go test ./...`，-race 门在 Linux/macOS 全量照跑（AGENTS 质量门全文照录为 "go test ./... -race"，CI 口径已有此分解）。 | 无需处置；Windows 侧回归由 CI 全量单测 + 用户 Windows 产物手测覆盖。 |
+| K35 | P3 | **AppImage 体积 ~80MB**：linuxdeploy 按 AppDir 约束打包 webkit2gtk 全量传递依赖 so（webview 运行时固有体积），deb/tar.gz 仅 7MB/16MB 二进制本体。 | 无需处置；格式固有。若需瘦身需换 webkit 运行时宿主策略（超 v1.0 范围）。 |
+| K36 | P3 | **MatchRunner 逐手质量评估深度差在 profile 评估中的口径提示**：eval CLI 质量评估固定 qualityDepth=4（FindBestMoveEx depth4/Top3），而 hybrid 参谋实际用 advisorDifficulty 5（depth6）出候选——候选/护航模式的 Top-3 失随统计不恒为 0（短名单深度高于评估深度）；与 TS eval.ts 逐行同构，非 Go 偏差，仅口径解读提示（DoD #4 的"失误率 ≈0%"以 Electron 版同口径跑真实端点对比为准）。 | 无需处置；跨语言逐位同构，对比结论有效。 |
+
 ## 已修复（保留记录）
 
 

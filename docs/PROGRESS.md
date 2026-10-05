@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-**M6（工作室 + 求解器 + 识图）代码完成，待用户手测**——T6.1~T6.5 全部落地（internal/solver AND/OR 迭代加深 + uint64 Zobrist 置换表 + ctx 取消、6 验证 FEN 金标准全绿；internal/llm/vision 识图协议逐字 + VisionReader + DR-005 预设恒发关闭参数；app.go Solver*/VisionReadBoard 绑定真接线 + wailsAdapter mime/authSlot 透传；前端工作室三 Tab/演示播放器为 M0 移植资产，本里程碑验证 43+10 用例）、两轮复审完成（语义一致性：design_docs/04 §2/§5 文档同步补丁；缺陷扫描：铁律 grep 全过，Go-TS 边缘差 K31~K33 留档）、质量门全绿。手测清单见下方 M6 交付段。
+**M7（评估 + 打包发布）代码完成，待用户手测（M4/M5/M6 手测项仍待一并验收）**——T7.1~T7.3 全部落地（internal/engine/matchrunner.go：Electron 版 matchRunner.ts 逐行翻译，RunMatch 五结算路径/单手超时 5min/质量评估深度对齐口径/RunMatchSeries 红黑换边；cmd/eval 评估 CLI：4 profile + --suite 四档对比 + MatchReport JSON 落盘，DR-005 请求体恒关思维链有测试断言；打包链：release.yml 三平台矩阵 tag v* 触发 + nfpm deb + AppImage + tar.gz 兜底本地冒烟全过；前端 e2e Playwright 冒烟链路 1 passed）、两轮复审完成（语义一致性：03 §9/05 §9 逐项核对 + "09 §3.4" 坏引用勘误；缺陷扫描：铁律 grep 全过 + -race 全量绿，K34~K36 留档）、质量门全绿（gofmt 空/vet 0/go test -race 全量/前端 249 用例/tsc+eslint 0 错/E2E 绿）。手测清单见下方 M7 交付段。
 
 ## 里程碑总览
 
@@ -19,9 +19,51 @@
 | M4 LLM 全链路 | 🔵 代码完成，待手测 | | 恒关思维链（DR-005）+ mock SSE 全场景 + 真实端点手测（T4.1~T4.5） |
 | M5 语料 + 棋谱 | 🔵 代码完成，待手测 | | ICCS/PGN/XQF 解析 + 大文件流式索引 + 语料库页 + 下载器 + 棋谱库（T5.1~T5.6） |
 | M6 工作室 + 求解器 + 识图 | 🔵 代码完成，待手测 | | AND/OR 求解器 + 6 验证 FEN + 工作室三 Tab + 视觉识图（DR-005）+ 求解辅助 + 演示播放器（T6.1~T6.5） |
-| M7 评估 + 打包发布 | ⬜ | | MatchRunner + 三平台 Release |
+| M7 评估 + 打包发布 | 🔵 代码完成，待手测 | | cmd/eval MatchRunner（DR-005）+ 三平台 Release 链 + Playwright E2E（T7.1~T7.3） |
 
 ## 变更日志
+
+### 2026-10-06 M7 评估 + 打包发布 交付（T7.1~T7.3，待手测）
+
+**完成清单**（internal/engine/matchrunner 2 文件 + cmd/eval 2 文件 + build 打包 4 文件 + release.yml + frontend e2e 3 文件；Go 13 新用例 + 前端 249 用例 + E2E 1 链路全绿）
+- T7.1（`feat(m7)` e0844f9）：`internal/engine/matchrunner.go`——Electron 版 matchRunner.ts 逐行翻译：RunMatch 五结算路径与 Dart 逐条一致（source 异常→resign/source-error、失败→resign、无着→no-legal-move、非法→illegal-move 兜底终审、将死/困毙→当方胜、跑满→draw-limit/move-limit）；单手超时默认 5min，以 **buffered chan goroutine 竞速**等价 Promise.race（迟到结果落缓冲不泄漏，TS 败者继续跑语义）；EvaluateQuality 深度对齐口径（FindBestMoveEx depth + EvaluateMove min(6,max(1,depth−1))，失误阈值 250 厘兵、走完即杀按 mate 级 30000 计损失、Top-3 跟随统计）；RunMatchSeries 红黑换边（奇数局黑方 builder 坐红席、两 builder 每局各构造一次）；MatchReport JSON 15 键与 Dart toJson 逐字一致。`cmd/eval/main.go`——eval.ts 逐行翻译：环境变量 LLM_BASE_URL/LLM_MODEL/LLM_API_KEY（Key 不落仓库）+ 参数 --suite/--games/--max-plies/--blend/--llm-timeout/--out/--profile/--red/--black；4 profile=baseline-v1/p0-prompt-v2（LlmPlayer v1/v2）/hybrid-candidate/hybrid-gate（HybridLlmPlayer candidate/gate、blend、advisorDifficulty 5）均 fallback builtinAi→内置 AI 难度 3；--suite 每档红黑各一局（games 固定 2、qualityDepth 固定 4）；profile-vs-profile 红黑换边；报告 JSON stdout + 落盘（movesIccs→moves 映射 + llmSide 注记）【DR-005】eval 请求经 BuildChatRequest 恒发关闭参数、CLI 无开关。测试：matchrunner 10 用例（战术命中率/对局质量 Hybrid vs 基线/大模型对战/结算路径×6/JSON 协议面）+ cmd/eval 3 用例（reportToJson 快照/字段齐全/httptest mock SSE 一局含 DR-005 与 stream:true 请求体断言）；**Electron 版 tools/mock-llm-server.mjs 真实端到端跑通一局报告字段齐全**（24 局 move-limit 落盘验证）+ --suite 四档 8 局机械验证（tmp/ 不入库）。
+- T7.2（`feat(m7)` 2584101 + `fix(m7)` b21dafd）：`.github/workflows/release.yml`——tag v* 触发：三平台矩阵（ubuntu/windows/macos）lint+test+build → 各平台打包 → artifact → 汇总 job `gh release create --draft` 上传；缓存 setup-go（go-build+模块，key 随 go.sum）+ wails/nfpm CLI（随版本 key）+ Windows NSIS 工具；Linux 装 libgtk-3-dev **libwebkit2gtk-4.1-dev** + `-tags webkit2_41`（CI 同口径，启动提示词"4.0"为预置期旧口径——webkit2gtk-4.0 已从 Ubuntu 24.04+ 源移除，10 §3 R1'）；三平台产物=deb+AppImage+tar.gz / NSIS Setup.exe / universal dmg；Windows go test 退化无 -race（CGO 工具链缺失，K34）；setup-node 22 固定（vite 7 要求）。`build/nfpm.yaml` + `build/linux/{build-appimage.sh, desktop, 512 图标}`。**本地冒烟全过**：wails build 12.9s、deb 内容核验（dpkg-deb -c）、AppImage 生成（80MB，K35）、tar.gz、裸二进制启动存活。10 §4 落地注记 + 决策日志 DR-010（goreleaser/create-dmg/rpm/绿色 zip 弃用理由留档）。
+- T7.3（`test(m7)` 97638b6）：`frontend/e2e/smoke.spec.ts`——Electron 版 smoke.spec.mjs 浏览器移植：主页 7 入口文本全等 → 双人对弈红先 0 步 → 炮二平五 h7-e7 棋盘坐标点击（boardLayout 9.6/10.6 等价复算）→ 轮黑 1 步 → 悔棋归零 → 再走 → 新游戏确认框清空 → 返回主页 → 棋谱库打开；playwright.config.ts webServer 自动起 vite dev:web（mock 适配器不触网）；@playwright/test devDependency 新增（AGENTS 技术栈 09 §2.5 既有授权，M0 备忘"M7 落地时再入依赖"）；本地实跑 1 passed（3.4s 含冷启）。vitest/eslint/typecheck 覆盖面同步（e2e 入 tsconfig include 与 eslint files）。
+- 收尾（`style(m7)` 9a0820b + `docs(m7)` 本提交）：两轮复审——第一轮语义一致性（03 §9/05 §9/10 §4-§5/11 §3 M7 表逐项核对；"09 §3.4" 坏引用勘误至 09 §2.2/§2.3）；第二轮缺陷扫描（铁律 #1/#4/#8/#10 grep 机检 + matchrunner goroutine 有界性 + 报告无 Key 泄漏 + -race 全量）；质量门全绿：gofmt 空输出、go vet 0、go test ./... -race 全量（含金标准对拍）、npm test:fe 249 用例、tsc+eslint 0 错、E2E 绿；KNOWN_ISSUES K34~K36 留档。
+
+**DoD（10 §5）对照**：
+1. E-F01~F42 功能可用——M1~M6 已交付并逐里程碑登记（含 Go 版两处差异：重复裁决前置 DR-006、思维链强制关闭 DR-005）；M4/M5/M6 手测项待用户一并验收。
+2. 09 质量门全绿 + 三平台安装包——质量门 ✅；三平台安装包链路 ✅（Linux 本地冒烟实测；Windows/macOS 首个 tag CI 首跑验证）。
+3. 真实 LLM 端点手测——**待用户**（人机 LLM 一整局 + LLM vs LLM 一整局 + 求解辅助一次 + 识图一次，全程思维链关闭生效；详见手测清单）。
+4. MatchRunner 四 profile 报告可复现——mock 端点四档报告字段齐全 ✅（本里程碑）；与 Electron 版结论同数量级对比（候选/护航模式失误率 ≈0%）**待用户真实端点 `--suite`**（口径提示见 K36）。
+
+**手测指引（M7 待验收）**：
+
+A. 评估 CLI（真实端点，命令行不弹窗）：
+```bash
+# 四档对比（每档红黑各一局对抗内置 AI 高级，约 8 局；真实 Key 只走环境变量）
+LLM_BASE_URL=https://你的端点/v1 LLM_MODEL=你的模型 LLM_API_KEY=sk-xxx \
+  go run ./cmd/eval -- --suite
+# 单 profile 人机式对抗 2 局
+LLM_BASE_URL=... LLM_MODEL=... LLM_API_KEY=... go run ./cmd/eval -- --games 2 --profile hybrid-candidate
+```
+- 验证：stdout JSON + `tmp/eval-report-*.json` 落盘；字段齐全（winner/endReason/plies/*TimeMs/*Fallbacks/*Blunders/evaluatedPlies/*Top3Hits|Misses/moves/llmSide）；hybrid-candidate/gate 的红侧（LLM 侧）Top-3 跟随显著优于 baseline-v1；全程模型思维链关闭（若端点后台可查关闭参数生效更佳）。Windows 侧预期报告与 Linux 同构（K34 仅影响 CI 内 -race，不影响产物）。
+- DoD #4 口径：候选/护航模式"失误率 ≈0%"与 Electron 版结论同数量级对比（统计口径见 K36：参谋 depth6 短名单 vs 评估 depth4 Top-3，miss 不恒 0 属预期）。
+
+B. 三平台安装包（首个 tag 触发 CI）：
+```bash
+git tag v1.0.0-rc1 && git push origin v1.0.0-rc1   # 触发 release.yml
+```
+- 验证：Actions 三平台矩阵全绿 → Draft Release 挂 5 个产物（deb/AppImage/tar.gz/Setup.exe/dmg）→ Linux 侧可本地安装 deb 或直接跑 AppImage 验证启动；Windows/macOS 安装包在对应平台双击安装启动（Windows 首次运行 WebKitGTK 无关、需 WebView2 Runtime——Win11 自带）。
+
+C. E2E（浏览器 mock，无 Key）：
+```bash
+cd frontend && npm run test:e2e    # 冒烟链路：主页 7 入口→走一着→悔棋→新游戏→棋谱库
+```
+
+D. M4/M5/M6 遗留手测项一并验收（清单见各里程碑交付段；重点：真实端点人机 LLM 一整局 / LLM vs LLM 一整局 / 求解辅助 / 识图——即 DoD #3 全部内容，可 A 项同批进行）。
+
+预期已知行为（非 bug）：mock 端点下四档对比统计无区分度（mock 恒选清单首条，纯机械验证）；hybrid Top-3 miss 不恒 0（K36 口径）；AppImage ~80MB（K35）；Windows CI 无 -race（K34）；--suite 的 --games 参数不生效（固定每档 2 局，eval.ts 同款）。
 
 ### 2026-10-05 M6 工作室 + 求解器 + 识图 交付（T6.1~T6.5，待手测）
 
@@ -307,7 +349,8 @@ go vet ./...                        # 0 问题
 ## 开发环境（跨会话备忘，2026-10-05 盘点）
 
 - 工具链已齐：Go 1.27.1、Node 24.15（nvm）、wails CLI v2.16.0、git、gh（已认证）；Wails Linux 依赖 libgtk-3-dev 与 libwebkit2gtk-4.1-dev 已装（webkit2gtk-4.0 已从 Ubuntu 26.04 源移除，一律用 `wails dev/build -tags webkit2_41`，CI 同口径）。
-- 测试取证：google-chrome（headless 冒烟）、xwd（窗口取证）；playwright-core 借用 `/home/ssy/proj/chinese_chess_electron/node_modules`（M7 E2E 落地时再入依赖）。
+- M7 打包工具（已就绪）：nfpm v2.41.1 已 `go install`（用户态）；AppImage 的 linuxdeploy 由 build-appimage.sh 自动下载到 tmp/appimage-tools/（不入库）；NSIS 仅 CI Windows runner 需要（wails -nsis 自动装）。Playwright chromium 已 `npx playwright install chromium`（~/.cache/ms-playwright，浏览器 mock E2E 用）。
+- 测试取证：google-chrome（headless 冒烟）、xwd（窗口取证）；E2E 已随 M7 正式入依赖（frontend devDependency @playwright/test + npm run test:e2e，M0 备忘的"借用 Electron node_modules"口径作废）。
 - **安装权限约定（用户指示）**：开发/构建缺包时代理应自行安装；本机 `sudo` 需密码，**缺包时代理给出确切命令通知用户手动执行**（go/npm 用户态操作不受影响）。M7 打包工具（nfpm/appimagetool/nsis）届时按此办理。
 
 ## 手测指引（M1，已随用户启动 M2 验收通过，留档）
