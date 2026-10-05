@@ -56,12 +56,6 @@ jobs:
             ~/go/bin/wails
             ~/go/bin/nfpm
           key: cli-tools-${{ runner.os }}-${{ env.WAILS_VERSION }}-${{ env.NFPM_VERSION }}
-      - name: Cache NSIS (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ~/AppData/Local/wails2/nsis
-          key: nsis-${{ env.WAILS_VERSION }}
 
       - name: Install wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
@@ -101,6 +95,11 @@ jobs:
           npm run test:fe
 
       # ---- 构建 ----
+      # wails v2.16 不自动装 NSIS（仅查 PATH 的 makensis，缺则跳过打包）：
+      # 模板只用标准 NSIS 组件（MUI/x64/WinVer/FileFunc），choco 标准包即可。
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: wails build -platform linux/amd64 -tags webkit2_41
@@ -136,8 +135,11 @@ jobs:
           VER: ${{ github.ref_name }}
         run: |
           VER_NUM="${VER#v}"
+          # wails 的 .app bundle 取 wails.json name（chinese_chess_go.app）而非
+          # outputfilename——glob 兜底不写死（DR-012 后续修复记录见 K37）。
+          APP_BUNDLE="$(ls -d build/bin/*.app | head -1)"
           hdiutil create -volname "中国象棋 Ultra" \
-            -srcfolder "build/bin/${APP_NAME}.app" \
+            -srcfolder "$APP_BUNDLE" \
             -ov -format UDZO "build/bin/${APP_NAME}-${VER_NUM}-macos-universal.dmg"
 
       # ---- artifact：汇总 job 收集上传 Draft Release ----
