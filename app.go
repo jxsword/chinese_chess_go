@@ -404,18 +404,52 @@ func (a *App) CorpusPickDirectory() (string, error) {
 }
 
 // ---------------------------------------------------------------------------
-// 对话框与剪贴板（M5 随棋谱导出接入对话框；剪贴板 M2 已接 wails runtime）
+// 对话框与剪贴板（M5：导出 PGN / 导入棋谱对话框；剪贴板 M2 已接 wails runtime）
 // ---------------------------------------------------------------------------
 
 // DialogSaveFile 存文件对话框；返回所选路径，取消返回空串。
+// 所选路径的内容写盘在此收口（对齐 Electron 版 dialog ipc：原生语义）。
 func (a *App) DialogSaveFile(req map[string]any) (string, error) {
-	_ = req
-	return "", nil // 占位：取消语义（M5 换 wails runtime.SaveFileDialog）
+	defaultName, _ := req["defaultName"].(string)
+	content, _ := req["content"].(string)
+	if a.ctx == nil {
+		return "", nil
+	}
+	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		Title:           "导出文件",
+		DefaultFilename: defaultName,
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil // 取消
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // DialogReadFile 读文件对话框（导入棋谱）；取消返回 null。
 func (a *App) DialogReadFile() (map[string]any, error) {
-	return nil, nil // 占位：取消语义（M5）
+	if a.ctx == nil {
+		return nil, nil
+	}
+	path, err := wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "导入棋谱",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, nil // 取消
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"path": path, "content": string(content)}, nil
 }
 
 // ClipboardWrite 写系统剪贴板。
