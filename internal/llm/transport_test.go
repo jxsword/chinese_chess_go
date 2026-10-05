@@ -85,7 +85,6 @@ func makeProxy(resolveApiKey func(string) string) *Proxy {
 	})
 }
 
-
 // handlersFrom 收集器 → ChatHandlers（StreamTransport 直连形态）。
 func handlersFrom(c *collector) ChatHandlers {
 	return ChatHandlers{

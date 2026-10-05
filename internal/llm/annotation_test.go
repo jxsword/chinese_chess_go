@@ -14,7 +14,6 @@ func mvCode(code string) rules.Move {
 	return rules.Move{From: *from, To: *to}
 }
 
-
 // mustBoard 由 FEN 构造盘面（失败即 Fatal）。
 func mustBoard(t *testing.T, fen string) *rules.Board {
 	t.Helper()

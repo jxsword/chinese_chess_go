@@ -156,11 +156,11 @@ type thinkingConfig struct {
 // chatBody 请求体（字段序 = TS 对象插入序：model/messages/temperature/
 // max_tokens/stream/关闭参数）。
 type chatBody struct {
-	Model       string         `json:"model"`
-	Messages    []chatMessage  `json:"messages"`
-	Temperature float64        `json:"temperature"`
-	MaxTokens   int            `json:"max_tokens"`
-	Stream      bool           `json:"stream"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Temperature float64       `json:"temperature"`
+	MaxTokens   int           `json:"max_tokens"`
+	Stream      bool          `json:"stream"`
 	// DR-005 恒发关闭参数（按预设映射二选一； omitempty 由指针 nil 控制）：
 	EnableThinking *bool           `json:"enable_thinking,omitempty"`
 	Thinking       *thinkingConfig `json:"thinking,omitempty"`
