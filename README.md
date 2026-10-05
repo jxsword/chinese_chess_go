@@ -3,7 +3,7 @@
 中国象棋桌面应用——Flutter 版（ChineseChessUltra，五期全部交付）的 **Go 语言全栈重写**。
 前一版 Electron 实现见 `jxsword/chinese_chess_electron`（已交付 v1.0），其设计资产与金标准直接复用。
 
-> 当前状态：**设计阶段**。全套设计文档见 [design_docs/](design_docs/)，开发进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+> 当前状态：**v1.0 代码完成，验收中**——M0~M6 已全部通过用户手测验收，M7（评估 CLI + 三平台打包 + E2E）代码完成、质量门全绿，剩余真实端点评估与首个 tag CI 产包验证。全套设计文档见 [design_docs/](design_docs/)，逐里程碑进度与验收记录见 [docs/PROGRESS.md](docs/PROGRESS.md)。
 
 ## 功能总览（对齐 Flutter/Electron 版全部功能）
 
@@ -22,14 +22,14 @@
 |---|---|
 | 桌面框架 | Wails v2（Go 后端 + 原生 WebView：Win=WebView2 / Linux=WebKitGTK / mac=WKWebView） |
 | 前端 | React 18 + TypeScript(strict) + Vite + Zustand（自 Electron 版移植，api 适配层换 Wails 绑定） |
-| 语言 | Go 1.23+（领域层 `internal/` 纯 Go，零 UI/运行时依赖） |
+| 语言 | Go 1.26+（go.mod 口径；领域层 `internal/` 纯 Go，零 UI/运行时依赖） |
 | 数据库 | modernc.org/sqlite（纯 Go 零 CGO） |
 | LLM | net/http SSE；思维链强制关闭（按预设映射：Qwen→enable_thinking:false / GLM-4.5+→thinking:disabled） |
 | 凭据 | OS keyring + 明文 0600 回退 |
 | 测试 | go test + 跨语言金标准对拍 + Vitest（前端）+ Playwright（浏览器 mock E2E） |
 | 打包 | wails build + GitHub Actions 三平台矩阵 + Release 上传 |
 
-选型决策记录：[design_docs/decision_log.md](design_docs/decision_log.md)（DR-001~006）。
+选型决策记录：[design_docs/decision_log.md](design_docs/decision_log.md)（DR-001~011，含弃用选项与理由）。
 
 ## 两大设计要点（相对 Electron 版的针对性变化）
 
@@ -42,8 +42,8 @@
 chinese_chess_go/
 ├── AGENTS.md            # AI 编码代理常驻指令（铁律/规范/命令）
 ├── design_docs/         # 设计文档集（Go 版唯一事实源）
-├── docs/                # 开发进度（PROGRESS.md）
-├── frontend/            # 移植的 React 前端（src/api 层适配 Wails 绑定）
+├── docs/                # 开发进度与已知问题（PROGRESS.md / KNOWN_ISSUES.md）
+├── frontend/            # 移植的 React 前端（src/api 层适配 Wails 绑定；e2e/ 为 Playwright 冒烟）
 ├── internal/            # 纯 Go 领域层：rules/engine/solver/llm/parsers/storage
 ├── cmd/eval/            # MatchRunner 能力评估 CLI
 ├── testdata/golden/     # 跨语言金标准（复制自 Electron 版 tools/golden）
@@ -67,38 +67,41 @@ chinese_chess_go/
 | 09 | [测试方案](design_docs/09-测试方案.md) | 金标准对拍/mock SSE/双测试栈/质量门 |
 | 10 | [实施路线图](design_docs/10-实施路线图.md) | M0~M7 里程碑/风险表/DoD |
 | 11 | [开发执行手册](design_docs/11-开发执行手册.md) | AI 提示词/子任务拆解/**里程碑验收流** |
-| — | [决策记录](design_docs/decision_log.md) | DR-001~006（含弃用选项与理由） |
+| — | [决策记录](design_docs/decision_log.md) | DR-001~011（含弃用选项与理由） |
 
 ## 开发（WSL ubuntu2604）
 
 ```bash
-# 依赖：Go 1.23+、Node 20 LTS、wails v2 CLI、WebKitGTK（libgtk-3-dev libwebkit2gtk-4.0-dev）
+# 依赖：Go 1.26+、Node 20.19+/22+（vite 7 要求）、wails v2 CLI、WebKitGTK
+#       Ubuntu 24.04+ 装 libgtk-3-dev libwebkit2gtk-4.1-dev（webkit2gtk-4.0 已从源移除）
 npm install            # frontend 依赖（wails dev 自动调用）
-wails dev              # 桌面开发模式（WSLg）
+wails dev -tags webkit2_41   # 桌面开发模式（WSLg；Ubuntu 24.04+ 需该标签，Win/mac 免标签）
 npm run dev:web        # 前端浏览器模式（mock api 适配层）
 go test ./...          # Go 全量测试
 npm run test:fe        # 前端测试
-go run ./cmd/eval      # 能力评估 CLI（LLM_BASE_URL/LLM_MODEL 环境变量）
+npm run test:e2e       # Playwright 浏览器 mock E2E 冒烟（frontend/ 内）
+go run ./cmd/eval -- --suite   # 能力评估 CLI（LLM_BASE_URL/LLM_MODEL/LLM_API_KEY 环境变量；
+                               # stderr 逐手进度，JSON 报告 stdout + tmp/ 落盘）
 ```
 
 开发流程与 AI 协作方式见 [design_docs/11-开发执行手册.md](design_docs/11-开发执行手册.md)。
 
 ## 打包与发布
 
-推送 `v*` tag 触发 [.github/workflows/release.yml](.github/workflows/release.yml)：三平台 runner 各跑质量门 + `wails build` 打包，二进制安装包统一上传 GitHub Release；构建缓存（go-build / 模块 / wails 工具链）按 lockfile 失效。
+推送 `v*` tag 触发 [.github/workflows/release.yml](.github/workflows/release.yml)：三平台 runner 各跑质量门 + `wails build` 打包，产物汇总上传 GitHub Draft Release——Linux（deb / AppImage / 裸二进制 tar.gz 兜底）、Windows（NSIS Setup.exe）、macOS（universal dmg）；构建缓存（go-build / 模块 / wails·nfpm 工具链 / NSIS）按 lockfile 与版本失效。
 
 ## 路线图
 
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
-| M0 | 工程骨架（go.mod + Wails + CI 三平台） | ⬜ |
-| M1 | 规则内核 + L3 重复裁决（金标准对拍） | ⬜ |
-| M2 | 对战页 + 存储（fenHistory 四收口 + UI 裁决接线） | ⬜ |
-| M3 | 引擎 + L0/L1/L2 重复治理（金标准对拍） | ⬜ |
-| M4 | LLM 全链路（思维链强制关闭） | ⬜ |
-| M5 | 语料 + 棋谱 | ⬜ |
-| M6 | 工作室 + 求解器 + 识图 | ⬜ |
-| M7 | 评估（MatchRunner）+ 三平台打包发布 | ⬜ |
+| M0 | 工程骨架（go.mod + Wails + CI 三平台） | ✅ 用户验收通过 |
+| M1 | 规则内核 + L3 重复裁决（金标准对拍） | ✅ 用户验收通过 |
+| M2 | 对战页 + 存储（fenHistory 四收口 + UI 裁决接线） | ✅ 用户验收通过 |
+| M3 | 引擎 + L0/L1/L2 重复治理（金标准对拍） | ✅ 用户验收通过 |
+| M4 | LLM 全链路（思维链强制关闭） | ✅ 用户验收通过 |
+| M5 | 语料 + 棋谱 | ✅ 用户验收通过 |
+| M6 | 工作室 + 求解器 + 识图 | ✅ 用户验收通过 |
+| M7 | 评估（MatchRunner）+ 三平台打包发布 | 🔵 代码完成、质量门全绿，验收中（余：真实端点 `--suite` 评估 + 首个 `v*` tag CI 三平台产包） |
 
 ## 许可
 
