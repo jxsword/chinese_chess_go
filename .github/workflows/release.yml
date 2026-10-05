@@ -176,6 +176,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # gh release create 需要 git 上下文解析 tag（无 checkout 时 API 侧可能拿不到
+      # 刚推送的 ref，产生 untagged-<hash> 幽灵 draft——v1.0.0-rc1 第 4 轮实证）。
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -185,6 +188,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VER: ${{ github.ref_name }}
         run: |
-          # 本 job 仅 download-artifact 无 checkout（非 git 仓库）——显式 --repo。
-          gh release create "$VER" --repo ${{ github.repository }} --draft \
+          gh release create "$VER" --draft \
             --title "中国象棋 Ultra ${VER}" --generate-notes dist/*
+      # 创建后立即自校验：draft 不可见/资产缺失时当场失败（而非产出幽灵 draft）。
+      - name: Verify Draft Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ github.ref_name }}
+        run: |
+          gh release view "$VER" --json isDraft,assets \
+            --jq '{draft: .isDraft, assets: [.assets[].name]}'
