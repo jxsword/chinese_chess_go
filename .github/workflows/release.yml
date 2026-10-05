@@ -97,9 +97,12 @@ jobs:
       # ---- 构建 ----
       # wails v2.16 不自动装 NSIS（仅查 PATH 的 makensis，缺则跳过打包）：
       # 模板只用标准 NSIS 组件（MUI/x64/WinVer/FileFunc），choco 标准包即可。
+      # choco 安装器写入的系统 PATH 对已启动 job 不可见——显式写入 GITHUB_PATH。
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
-        run: choco install nsis -y --no-progress
+        run: |
+          choco install nsis -y --no-progress
+          Add-Content $env:GITHUB_PATH "C:\Program Files (x86)\NSIS\Bin"
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: wails build -platform linux/amd64 -tags webkit2_41
