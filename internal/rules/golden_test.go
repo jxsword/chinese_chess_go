@@ -111,3 +111,35 @@ func TestGoldenMoves(t *testing.T) {
 		})
 	}
 }
+
+type goldenNotationCase struct {
+	Name     string `json:"name"`
+	Piece    string `json:"piece"`
+	From     []int  `json:"from"`
+	To       []int  `json:"to"`
+	Expected string `json:"expected"`
+}
+
+type goldenNotationFile struct {
+	Comment string               `json:"comment"`
+	Cases   []goldenNotationCase `json:"cases"`
+}
+
+// 金标准中文记法对拍（tools/golden/notation.json）：ChineseNotation(piece, from, to)
+// 输出与 expected 逐字一致（09 §2.1 之 3）。
+func TestGoldenNotation(t *testing.T) {
+	var g goldenNotationFile
+	loadGolden(t, "notation.json", &g)
+	for _, c := range g.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			piece := PieceFromFenChar(c.Piece[0])
+			if piece == nil {
+				t.Fatalf("非法棋子字符: %s", c.Piece)
+			}
+			got := ChineseNotation(piece, Pos(c.From[0], c.From[1]), Pos(c.To[0], c.To[1]))
+			if got != c.Expected {
+				t.Errorf("ChineseNotation = %q, 期望 %q", got, c.Expected)
+			}
+		})
+	}
+}
