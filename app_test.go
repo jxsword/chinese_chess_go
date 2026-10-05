@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jxsword/chinese_chess_go/internal/storage"
 )
@@ -333,5 +334,107 @@ func TestDocumentsDirCreatesMissingDocuments(t *testing.T) {
 	info, err := os.Stat(want)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("~/Documents 未创建: %v", err)
+	}
+}
+
+// T3.5 引擎绑定端到端（09 §2.4）：App.Engine* 三方法经 Runner 走真实引擎，
+// wire 形状与前端 engineProtocol.ts 对齐（Move/EngineReport JSON）。
+func TestEngineBindingsEndToEnd(t *testing.T) {
+	app := NewApp()
+	fen := "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
+
+	// findBestMove：返回 Move wire 形状。
+	moveRaw, err := app.EngineFindBestMove("id-fbm", fen, 1, nil)
+	if err != nil {
+		t.Fatalf("EngineFindBestMove 报错: %v", err)
+	}
+	moveJSON, err := json.Marshal(moveRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wireMove struct {
+		From struct {
+			Col int `json:"col"`
+			Row int `json:"row"`
+		} `json:"from"`
+		To struct {
+			Col int `json:"col"`
+			Row int `json:"row"`
+		} `json:"to"`
+	}
+	if err := json.Unmarshal(moveJSON, &wireMove); err != nil {
+		t.Fatalf("findBestMove 结果非 Move 形状: %v (%s)", err, moveJSON)
+	}
+	if wireMove.From.Col < 0 || wireMove.From.Col > 8 || wireMove.From.Row < 0 || wireMove.From.Row > 9 {
+		t.Errorf("from 越界: %+v", wireMove.From)
+	}
+
+	// findBestMove：difficulty 0 = 缺省 3（wire 缺省约定，03 §7）。
+	if _, err := app.EngineFindBestMove("id-fbm-default", fen, 0, nil); err != nil {
+		t.Fatalf("difficulty 0 应取缺省档: %v", err)
+	}
+
+	// findBestMoveEx：报告形状 best/bestCp/topK（topK 为 [move, cp] 二元组）。
+	reportRaw, err := app.EngineFindBestMoveEx("id-ex", fen, 2, 3, 0)
+	if err != nil {
+		t.Fatalf("EngineFindBestMoveEx 报错: %v", err)
+	}
+	reportJSON, _ := json.Marshal(reportRaw)
+	var reportGeneric struct {
+		Best   map[string]any `json:"best"`
+		BestCp int            `json:"bestCp"`
+		TopK   []any          `json:"topK"`
+	}
+	if err := json.Unmarshal(reportJSON, &reportGeneric); err != nil {
+		t.Fatalf("findBestMoveEx 结果非报告形状: %v", err)
+	}
+	if len(reportGeneric.TopK) != 3 {
+		t.Errorf("topK 长度 = %d, want 3", len(reportGeneric.TopK))
+	}
+	pair, ok := reportGeneric.TopK[0].([]any)
+	if !ok || len(pair) != 2 {
+		t.Fatalf("topK 表项应为 [move, cp] 二元组: %s", reportJSON)
+	}
+
+	// evaluateMove：move 传渲染层原始对象。
+	cpRaw, err := app.EngineEvaluateMove("id-ev", fen,
+		map[string]any{"from": map[string]any{"col": 1, "row": 7}, "to": map[string]any{"col": 4, "row": 7}}, 3)
+	if err != nil {
+		t.Fatalf("EngineEvaluateMove 报错: %v", err)
+	}
+	// 进程内为 int；经 Wails JSON 序列化后前端收到 number（形状由 engine 包 wire 用例锁定）。
+	if _, ok := cpRaw.(int); !ok {
+		t.Errorf("evaluateMove 结果应为分数，got %T", cpRaw)
+	}
+
+	// 被将死：findBestMove 返回 null。
+	deadRaw, err := app.EngineFindBestMove("id-dead", "R3k4/9/9/9/9/4R4/9/9/9/4K4 b - - 0 1", 1, nil)
+	if err != nil || deadRaw != nil {
+		t.Errorf("被将死应 (nil, nil)，got %v %v", deadRaw, err)
+	}
+
+	// cancel：未知 id 幂等。
+	app.EngineCancel("id-unknown")
+}
+
+// T3.5 取消链路（DR-003/03 §7）：Cancel 后在途搜索以 canceled 错误结算。
+func TestEngineBindingCancel(t *testing.T) {
+	app := NewApp()
+	fen := "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := app.EngineFindBestMove("id-cancel", fen, 5, nil)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	app.EngineCancel("id-cancel")
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "canceled") {
+			t.Fatalf("取消应以 canceled 结算，got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("取消后 3s 内未结算")
 	}
 }

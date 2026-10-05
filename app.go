@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/jxsword/chinese_chess_go/internal/engine"
 	"github.com/jxsword/chinese_chess_go/internal/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -29,11 +32,15 @@ type App struct {
 	daoPath     string // <Documents>/chinese_chess_ultra_go.sqlite（07 §1）
 	settings    *storage.Settings
 	credentials *storage.Credentials
+
+	// engineRunner 引擎通道（M3）：每请求独立 goroutine + ctx 取消注册表
+	//（DR-003/03 §7）。求解器/解析器通道随 M5/M6 复用同型 Runner。
+	engineRunner *engine.Runner
 }
 
 // NewApp 创建绑定层实例（Wails Bind 入口）。
 func NewApp() *App {
-	return &App{}
+	return &App{engineRunner: engine.NewRunner()}
 }
 
 // errMilestone 占位方法统一错误：指明方法与计划接入里程碑。
@@ -368,37 +375,58 @@ func (a *App) VisionReadBoard(cfg map[string]any, imageB64 string) (map[string]a
 	return nil, errMilestone("视觉识图", "M6")
 }
 
-// EngineFindBestMove 对局 AI 应手（M3 接入：internal/engine 逐行翻译 TS 版）。
+// EngineFindBestMove 对局 AI 应手（M3：internal/engine 逐行翻译 TS 版；
+// goroutine + ctx 取消，03 §7——绑定阻塞至结算，取消经 EngineCancel）。
 func (a *App) EngineFindBestMove(requestID, fen string, difficulty int, historyFens []string) (any, error) {
-	_ = requestID
-	_ = fen
-	_ = difficulty
-	_ = historyFens
-	return nil, errMilestone("内置引擎", "M3")
+	return a.engineCall(requestID, engine.ReqFindBestMove, engine.FindBestMovePayload{
+		Fen:         fen,
+		Difficulty:  difficulty, // 0=未设 → 缺省 3（03 §7 wire 缺省约定）
+		HistoryFens: historyFens,
+	})
 }
 
 // EngineFindBestMoveEx 参谋报告（Top-K 真实分差；M3 接入）。
 func (a *App) EngineFindBestMoveEx(requestID, fen string, depth, topK, timeLimitMs int) (any, error) {
-	_ = requestID
-	_ = fen
-	_ = depth
-	_ = topK
-	_ = timeLimitMs
-	return nil, errMilestone("参谋报告", "M3")
+	return a.engineCall(requestID, engine.ReqFindBestMoveEx, engine.FindBestMoveExPayload{
+		Fen:         fen,
+		Depth:       depth,       // 0=未设 → 6
+		TopK:        topK,        // 0=未设 → 5
+		TimeLimitMs: timeLimitMs, // 0=未设 → 5000
+	})
 }
 
-// EngineEvaluateMove 单着法评估（护航否决用；M3 接入）。
+// EngineEvaluateMove 单着法评估（护航否决用；M3 接入）。move 为渲染层
+// 原始 JSON 对象（{from:{col,row}, to:{col,row}}），协议层解为 WireMove。
 func (a *App) EngineEvaluateMove(requestID, fen string, move map[string]any, depth int) (any, error) {
-	_ = requestID
-	_ = fen
-	_ = move
-	_ = depth
-	return nil, errMilestone("着法评估", "M3")
+	rawMove, err := json.Marshal(move)
+	if err != nil {
+		return nil, err
+	}
+	return a.engineCall(requestID, engine.ReqEvaluateMove, engine.EvaluateMovePayload{
+		Fen:   fen,
+		Move:  rawMove,
+		Depth: depth, // 0=未设 → 4
+	})
 }
 
-// EngineCancel 取消引擎请求（context cancel；幂等）。
+// EngineCancel 取消引擎请求（context cancel；幂等）。取消后结算的迟到结果
+// 由前端按 requestId 丢弃（00 §3.2 主语义）。
 func (a *App) EngineCancel(requestID string) {
-	_ = requestID
+	a.engineRunner.Cancel(requestID)
+}
+
+// engineCall 提交请求并阻塞等待结算；失败以 error 返回（Wails invoke reject，
+// 前端 engineClient 统一映射为 {ok:false, error} 响应）。
+func (a *App) engineCall(requestID string, reqType engine.RequestType, payload any) (any, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	resp := <-a.engineRunner.Submit(engine.Request{ID: requestID, Type: reqType, Payload: raw})
+	if !resp.OK {
+		return nil, errors.New(resp.Error)
+	}
+	return resp.Result, nil
 }
 
 // SolverSolve 求解残局（M6 接入：internal/solver，AND/OR 迭代加深）。
