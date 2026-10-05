@@ -218,8 +218,8 @@ func okMove(t *testing.T, iccs string) scriptItem {
 // TestTacticalHitRate 固定战术局面集：候选模式命中 Top-3 = 100%，基线选尾严格更低。
 func TestTacticalHitRate(t *testing.T) {
 	tacticalFens := []string{
-		"4k4/9/9/9/r8/9/R8/9/9/4K4 w",         // R×r 白吃车
-		"3k5/9/9/9/R8/8R/9/9/9/4K4 w",         // 双车杀
+		"4k4/9/9/9/r8/9/R8/9/9/4K4 w",           // R×r 白吃车
+		"3k5/9/9/9/R8/8R/9/9/9/4K4 w",           // 双车杀
 		"4k4/9/9/9/9/4C4/9/4C4/9/4K4 w - - 0 1", // 双炮中线
 	}
 	hybridHits, baselineHits, total := 0, 0, 0

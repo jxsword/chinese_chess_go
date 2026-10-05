@@ -31,10 +31,10 @@ type MatchReport struct {
 	Winner string `json:"winner"`
 	// EndReason 'checkmate' | 'stalemate' | 'resign' | 'no-legal-move' |
 	// 'illegal-move' | 'source-error' | 'move-limit'。
-	EndReason string `json:"endReason"`
-	Plies     int    `json:"plies"`
-	RedTimeMs int64  `json:"redTimeMs"`
-	BlackTimeMs int64 `json:"blackTimeMs"`
+	EndReason   string `json:"endReason"`
+	Plies       int    `json:"plies"`
+	RedTimeMs   int64  `json:"redTimeMs"`
+	BlackTimeMs int64  `json:"blackTimeMs"`
 
 	// RedFallbacks/BlackFallbacks 走子来源触发兜底（FromFallback）的次数。
 	RedFallbacks   int `json:"redFallbacks"`
@@ -94,7 +94,7 @@ type moveOutcome struct {
 
 // awaitMove 单手取着 + 超时竞速（等价 Dart .timeout(onTimeout: failed)）：
 // 超时返回 failed/'单手超时'，来源 goroutine 继续跑、迟到结果丢弃不泄漏
-//（等价 TS Promise.race 败者语义）。
+// （等价 TS Promise.race 败者语义）。
 func awaitMove(ctx context.Context, source MoveSource, b *rules.Board, history []rules.Move, timeout time.Duration) (MoveSourceResult, error) {
 	// TS 每次 nextMove 传 [...history] 浅拷贝；Go 侧拷贝并把 cap 收紧到 len，
 	// 主循环后续 append 必然换底，避免与仍持有的来源 goroutine 竞争底层数组。

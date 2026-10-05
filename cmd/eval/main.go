@@ -145,7 +145,7 @@ func reportToJson(r engine.MatchReport) map[string]any {
 }
 
 // matchVsEngine profile vs 内置 AI（难度 3）：红黑换边各一局，EvaluateQuality 开
-//（Dart _matchVsEngine）。source 单实例复用（eval.ts 同款）。
+// （Dart _matchVsEngine）。source 单实例复用（eval.ts 同款）。
 func matchVsEngine(ctx context.Context, source engine.MoveSource, games, maxPlies, qualityDepth int) ([]map[string]any, error) {
 	reports := make([]map[string]any, 0, games)
 	for i := 0; i < games; i++ {
