@@ -12,6 +12,7 @@ import (
 
 	"github.com/jxsword/chinese_chess_go/internal/engine"
 	"github.com/jxsword/chinese_chess_go/internal/llm"
+	"github.com/jxsword/chinese_chess_go/internal/parsers"
 	"github.com/jxsword/chinese_chess_go/internal/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -35,19 +36,28 @@ type App struct {
 	credentials *storage.Credentials
 
 	// engineRunner 引擎通道（M3）：每请求独立 goroutine + ctx 取消注册表
-	//（DR-003/03 §7）。求解器/解析器通道随 M5/M6 复用同型 Runner。
+	//（DR-003/03 §7）。
 	engineRunner *engine.Runner
+
+	// parserRunner 解析通道（M5）：与 engine.Runner 同型（goroutine 分批 +
+	// ctx 取消，electron-DR-016 的 goroutine 映射，06 §6）。
+	parserRunner *parsers.Runner
 
 	// llmProxy LLM 传输代理（M4，05 §3.2）：受理即返回 + 事件回发 + authSlot 注入。
 	llmProxy *llm.Proxy
 	llmOnce  sync.Once
 	// llmSenderOverride 测试注入的事件收集器（生产走 EventsEmit）。
 	llmSenderOverride llm.ProxySender
+
+	// corpusDocumentsOverride 测试注入的文档目录基路径（生产走 documentsDir()）。
+	corpusDocumentsOverride string
+	// parserProgressOverride 测试注入的解析进度收集器（生产走 EventsEmit）。
+	parserProgressOverride func(done, total int)
 }
 
 // NewApp 创建绑定层实例（Wails Bind 入口）。
 func NewApp() *App {
-	return &App{engineRunner: engine.NewRunner()}
+	return &App{engineRunner: engine.NewRunner(), parserRunner: parsers.NewRunner()}
 }
 
 // errMilestone 占位方法统一错误：指明方法与计划接入里程碑。
@@ -284,7 +294,7 @@ func (a *App) SecureDelete(slot string) error {
 }
 
 // ---------------------------------------------------------------------------
-// 语料库（M5 接入：下载器 SSRF/zip-slip 防护 + 流式索引，06 文档）
+// 语料库（M5：扫描/条目/字节/PGN 索引，06 文档 §1/§4；下载器见 T5.5）
 // ---------------------------------------------------------------------------
 
 // CorpusDownload 语料下载；进度经事件 corpus:progress 回传（载荷含 requestID）。
@@ -293,42 +303,79 @@ func (a *App) CorpusDownload(req map[string]any) error {
 	return errMilestone("语料下载", "M5")
 }
 
+// corpusUserPathKey electron-store 的语料目录键（07 文档 §3 corpus.userPath）。
+const corpusUserPathKey = "corpus.userPath"
+
+// corpusRoot 解析当前生效语料目录：入参非空直用；否则按
+// 用户设置 > legacy 相对目录 > 平台默认（corpus_paths.dart:150-172）。
+func (a *App) corpusRoot(root string) string {
+	if root != "" {
+		return root
+	}
+	user := ""
+	if a.settings != nil {
+		if v, ok := a.settings.Get(corpusUserPathKey).(string); ok {
+			user = v
+		}
+	}
+	legacy := ""
+	if wd, err := os.Getwd(); err == nil {
+		legacy = wd
+	}
+	documents := documentsDir()
+	if a.corpusDocumentsOverride != "" {
+		documents = a.corpusDocumentsOverride
+	}
+	return storage.ResolveCorpusDir(storage.CorpusDirOptions{
+		UserSetting:    user,
+		DocumentsPath:  documents,
+		LegacyBasePath: legacy,
+	})
+}
+
 // CorpusScan 扫描语料分类（root 为空串时按 用户设置>legacy>默认 解析）。
-func (a *App) CorpusScan(root string) (map[string]any, error) {
-	_ = root
-	return map[string]any{"root": root, "exists": false, "categories": []any{}}, nil // M0 占位：空态
+func (a *App) CorpusScan(root string) (storage.CorpusScanResult, error) {
+	return storage.ScanCorpus(a.corpusRoot(root)), nil
 }
 
 // CorpusListEntries 列出 XQF 分类下全部 .xqf 文件（不解析）。
-func (a *App) CorpusListEntries(categoryPath, categoryName string) ([]map[string]any, error) {
-	_ = categoryPath
-	_ = categoryName
-	return []map[string]any{}, nil // M0 占位：空态
+func (a *App) CorpusListEntries(categoryPath, categoryName string) ([]storage.CorpusEntry, error) {
+	return storage.ListXqfEntries(categoryPath, categoryName), nil
 }
 
-// CorpusReadFiles 批量读取 .xqf 文件字节（转交解析管线）。
-func (a *App) CorpusReadFiles(paths []string) ([]map[string]any, error) {
-	_ = paths
-	return []map[string]any{}, nil // M0 占位：空态
+// CorpusReadFiles 批量读取棋谱文件字节（转交解析管线）。
+// Bytes 走 JSON base64 承载（Wails 通道无结构化克隆，前端适配层解码）。
+func (a *App) CorpusReadFiles(paths []string) ([]storage.CorpusFileBytes, error) {
+	return storage.ReadCorpusFiles(paths), nil
 }
 
-// CorpusPgnIndex 大 PGN 文件按局偏移索引（流式扫描）。
-func (a *App) CorpusPgnIndex(path string, maxGames int) ([]map[string]any, error) {
-	_ = path
-	_ = maxGames
-	return []map[string]any{}, nil // M0 占位：空态
+// CorpusPgnIndex 大 PGN 文件按局偏移索引（流式扫描；maxGames ≤ 0 表示不限）。
+func (a *App) CorpusPgnIndex(path string, maxGames int) ([]parsers.PgnGameIndex, error) {
+	return storage.ScanPgnIndex(path, maxGames)
 }
 
 // CorpusReadPgnGame 读取索引指向的单局文本。
 func (a *App) CorpusReadPgnGame(path string, entry map[string]any) (string, error) {
-	_ = path
-	_ = entry
-	return "", nil // M0 占位：空态
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return "", err
+	}
+	var idx parsers.PgnGameIndex
+	if err := json.Unmarshal(raw, &idx); err != nil {
+		return "", err
+	}
+	return storage.ReadPgnGameText(path, idx)
 }
 
 // CorpusPickDirectory 桌面端"选择其他棋谱目录"；取消返回空串。
 func (a *App) CorpusPickDirectory() (string, error) {
-	return "", nil // M0 占位：空态
+	if a.ctx == nil {
+		return "", nil
+	}
+	return wailsruntime.OpenDirectoryDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title:                "选择语料目录",
+		CanCreateDirectories: true,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -560,15 +607,46 @@ func (a *App) SolverCancel(requestID string) {
 	_ = requestID
 }
 
-// ParserParseBatch 批量解析棋谱文件字节（M5 接入；进度经事件 parser:progress 回传，
-// 分批 ≤128 与 generation 防陈旧由前端收口）。
+// ParserParseBatch 批量解析棋谱文件字节（M5：internal/parsers 协议层，goroutine
+// 分批 + ctx 取消，06 §6）。files 的 bytes 走 JSON base64 承载（Wails 通道无
+// 结构化克隆，前端适配层编码）；进度经事件 parser:progress {requestId, done, total}
+// 回传，分批 ≤128 与 generation 防陈旧由前端收口。
 func (a *App) ParserParseBatch(requestID string, files []map[string]any) (any, error) {
-	_ = requestID
-	_ = files
-	return nil, errMilestone("批量解析", "M5")
+	// files 为绑定入参（数组）；补齐协议载荷形状 {files: [...]}，bytes 以
+	// JSON base64 解码进 []byte（前端 api/binary.ts 对端契约）。
+	raw, err := json.Marshal(map[string]any{"files": files})
+	if err != nil {
+		return nil, err
+	}
+	resp := <-a.parserRunner.Submit(parsers.Request{
+		ID:      requestID,
+		Type:    parsers.ReqParseBatch,
+		Payload: raw,
+	}, a.parserProgressSender(requestID))
+	if !resp.OK {
+		return nil, errors.New(resp.Error)
+	}
+	return resp.Result, nil
 }
 
-// ParserCancel 取消解析批次（幂等）。（M5 接入）
+// ParserCancel 取消解析批次（context cancel；幂等）。取消后结算的迟到结果
+// 由前端按 requestId 丢弃（00 §3.2 主语义）。
 func (a *App) ParserCancel(requestID string) {
-	_ = requestID
+	a.parserRunner.Cancel(requestID)
+}
+
+// parserProgressSender parser:progress 事件发送器（ctx 未就绪时静默丢弃；
+// 测试注入收集器，沿 llmSenderOverride 同型）。
+func (a *App) parserProgressSender(requestID string) func(done, total int) {
+	if a.parserProgressOverride != nil {
+		return a.parserProgressOverride
+	}
+	return func(done, total int) {
+		if a.ctx == nil {
+			return
+		}
+		wailsruntime.EventsEmit(a.ctx, "parser:progress", map[string]any{
+			"requestId": requestID, "done": done, "total": total,
+		})
+	}
 }

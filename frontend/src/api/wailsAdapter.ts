@@ -15,7 +15,6 @@ import type {
   CorpusProgressEvent,
   CorpusScanResult,
   CorpusEntry,
-  CorpusFileBytes,
   PgnIndexEntry,
   SaveFileRequest,
   FileContent,
@@ -24,6 +23,7 @@ import type {
   SecureSetResult
 } from '@shared/ipc/types'
 import type { WindowApi } from '@shared/ipc/api'
+import { base64ToBytes } from './binary'
 
 // wailsAdapter（Go 版 08 文档 §2；通道映射 00 文档 §3.2）：
 //   invoke → window.go.main.App.Xxx(...)；事件 → window.runtime.EventsOn（返回反注册函数）。
@@ -70,7 +70,8 @@ interface WailsApp {
   CorpusDownload(req: CorpusDownloadRequest): Promise<void>
   CorpusScan(root: string): Promise<CorpusScanResult>
   CorpusListEntries(categoryPath: string, categoryName: string): Promise<CorpusEntry[]>
-  CorpusReadFiles(paths: string[]): Promise<CorpusFileBytes[]>
+  /** Go []byte 的 JSON 形态为 base64 字符串（Wails 通道无结构化克隆，api/binary.ts 口径） */
+  CorpusReadFiles(paths: string[]): Promise<Array<{ path: string; bytes: string }>>
   CorpusPgnIndex(path: string, maxGames: number): Promise<PgnIndexEntry[]>
   CorpusReadPgnGame(path: string, entry: PgnIndexEntry): Promise<string>
   CorpusPickDirectory(): Promise<string>
@@ -165,7 +166,12 @@ export function createWailsApi(): WindowApi {
       onProgress: (listener) => eventsOn<CorpusProgressEvent>('corpus:progress', listener),
       scan: (root: string) => app.CorpusScan(root),
       listEntries: (categoryPath, categoryName) => app.CorpusListEntries(categoryPath, categoryName),
-      readFiles: (paths: string[]) => app.CorpusReadFiles(paths),
+      readFiles: async (paths: string[]) => {
+        // Go []byte → JSON base64 → 解码回 Uint8Array（保持 Electron 形状的
+        // CorpusFileBytes.bytes: Uint8Array 语义，06 文档适配差异）。
+        const files = await app.CorpusReadFiles(paths)
+        return files.map((f) => ({ path: f.path, bytes: base64ToBytes(f.bytes) }))
+      },
       pgnIndex: (path: string, maxGames?: number) => app.CorpusPgnIndex(path, maxGames ?? 0),
       readPgnGame: (path, entry) => app.CorpusReadPgnGame(path, entry),
       pickDirectory: async () => emptyToNull(await app.CorpusPickDirectory())

@@ -10,6 +10,7 @@
  */
 import type { ParsedPuzzle } from '@packages/parsers'
 import { createRequestId } from '@renderer/api/client'
+import { bytesToBase64 } from './binary'
 import {
   CANCELED_ERROR,
   createParserWorkerCore,
@@ -68,7 +69,14 @@ function createWailsParserTransport(): ParserTransport {
       return
     }
     try {
-      const result = await bindings.ParserParseBatch(msg.id, (msg.payload as ParseBatchPayload | undefined)?.files ?? [])
+      // Uint8Array → base64（Wails invoke 走 JSON 序列化，字节面约定见 api/binary.ts）。
+      const payload = msg.payload as ParseBatchPayload | undefined
+      const files = (payload?.files ?? []).map((f) => ({
+        name: f.name,
+        source: f.source,
+        bytes: bytesToBase64(f.bytes)
+      }))
+      const result = await bindings.ParserParseBatch(msg.id, files)
       t.onmessage?.({ data: { id: msg.id, ok: true, result } })
     } catch (e) {
       t.onmessage?.({ data: { id: msg.id, ok: false, error: e instanceof Error ? e.message : String(e) } })
