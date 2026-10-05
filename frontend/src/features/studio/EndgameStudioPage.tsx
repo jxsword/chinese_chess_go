@@ -37,6 +37,7 @@ import { createIpcLlmTransport } from '@renderer/llm/llmTransport'
 import { BoardViewStatic } from '@renderer/features/board/BoardViewStatic'
 import { api } from '@renderer/api/client'
 import { AssistantConfigDialog } from './AssistantConfigDialog'
+import { assistantSourceLabel, resolveAssistantConfig } from './assistantConfig'
 import { runSolveAssist } from './llmAssist'
 
 const SOLVE_TIME_OPTIONS: ReadonlyArray<{ label: string; ms: number }> = [
@@ -245,16 +246,28 @@ export function EndgameStudioPage(): React.JSX.Element {
       if (visionTimerRef.current !== null) clearInterval(visionTimerRef.current)
       visionTimerRef.current = setInterval(() => setVisionElapsed((v) => v + 1), 1000)
 
-      const config = await api.secure.get('llm_config_assistant')
-      if (config === null || config.baseUrl.trim() === '' || config.model.trim() === '') {
+      // DR-009：助手槽全空时按 黑→红 运行时借用对战配置（仅本次请求内存，
+      // 不写入助手槽；authSlot 随来源槽走掩码注入）。
+      const [assistant, black, red] = await Promise.all([
+        api.secure.get('llm_config_assistant'),
+        api.secure.get('llm_config_black'),
+        api.secure.get('llm_config_red')
+      ])
+      const resolved = resolveAssistantConfig(assistant, black, red)
+      if (resolved.config === null) {
         setVisionMessage('请先配置研究助手模型（需视觉模型）')
         return
       }
+      if (resolved.source !== 'assistant') {
+        setVisionMessage(
+          `研究助手未配置，已临时借用${assistantSourceLabel(resolved.source)}对战配置（不写入研究助手配置）——对战配置可能不支持识图`
+        )
+      }
       const result = await api.vision.readBoard({
-        config,
+        config: resolved.config,
         imageBase64: bytesToBase64(bytes),
         mime: detectImageMime(bytes),
-        authSlot: 'llm_config_assistant'
+        authSlot: resolved.authSlot
       })
       const loaded = parseBoardFen(result.fen)
       const turn = parseTurnFen(result.fen)
@@ -344,18 +357,27 @@ export function EndgameStudioPage(): React.JSX.Element {
     solveTimerRef.current = setInterval(() => setSolveElapsed((v) => v + 0.2), 200)
     try {
       // 大模型辅助（Hybrid）：先提议（进度弹窗期间进行），求解器验证后写入注释。
+      // DR-009：助手槽全空时借用对战配置（黑→红，仅内存不落盘），toast 提示来源。
       let llmNote: string | null = null
       if (useLlm) {
-        const config = await api.secure.get('llm_config_assistant')
+        const [assistant, black, red] = await Promise.all([
+          api.secure.get('llm_config_assistant'),
+          api.secure.get('llm_config_black'),
+          api.secure.get('llm_config_red')
+        ])
+        const resolved = resolveAssistantConfig(assistant, black, red)
+        if (resolved.source !== null && resolved.source !== 'assistant') {
+          showToast(`研究助手未配置，已临时借用${assistantSourceLabel(resolved.source)}对战配置`)
+        }
         if (llmTransportRef.current === null) llmTransportRef.current = createIpcLlmTransport()
         const solver = solverRef.current
         llmNote = await runSolveAssist(fen, { timeLimitMs, maxPlies }, (f, move) => {
           if (solver === null) return Promise.resolve(false)
           return solver.isWinningFirstMove(f, move, { plies: maxPlies, timeLimitMs })
         }, {
-          config,
+          config: resolved.config,
           transport: llmTransportRef.current,
-          authSlot: 'llm_config_assistant'
+          authSlot: resolved.authSlot
         })
       }
       const result = await solverRef.current?.solve(fen, { timeLimitMs, maxPlies })

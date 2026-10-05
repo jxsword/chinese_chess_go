@@ -77,7 +77,20 @@
 - 理由：恢复的目的就是重建整局（07 §2"恢复时重放逐手重建"）；B 使保存/恢复两端语义对齐并让 DR-006 的 M2 检查点真正成立；A 违背设计文档且已实测为 bug；C 丢历史破坏重复治理。原版带此缺陷，Go 版按"有依据的原版缺陷修复"处理（先例：Electron 版修复原版"棋谱变新局"实机缺陷），跨语言行为差异在 KNOWN_ISSUES F3 与 07 §2 留档。
 - 影响：frontend/src/stores/gameVm.ts（起始 FEN 字段 + serialize）；gameVmFenHistory.spec.ts、autoSaveRestore.spec.ts 用例改写；07 §2/§3 修订；KNOWN_ISSUES F3；Go 侧 internal/storage 零改动（saved_games.fen 列语义文档化为"本局起始 FEN"）；恢复后死局清理（重放至终局判定）语义不变。
 
+## DR-009 研究助手配置运行时借用：助手槽全空时内存借用对战配置（黑→红），不落盘（2026-10-06）
+- 背景：三凭据槽位（red/black/assistant）完全独立——对战页读写 red/black 且改动即落盘，工作室识图与求解辅助只读 assistant 槽，未配置即提示"请先配置研究助手模型（需视觉模型）"，即使对战页已存有可用配置。用户需求：助手槽未配置时在**内存中**引用对战页存储的配置，**不写入**助手槽配置文件。约束：不得破坏 electron-DR-010 掩码/注入闭环与 electron-DR-013 掩码回写合并；工作室配置 UI（AssistantConfigDialog，M0 移植资产）保持与 Electron 逐字对齐。
+- 选项：
+  - A. 前端运行时借用（DR-012 同构扩展）——助手槽三字段全空时，识图/求解辅助发起时并行读三槽，按 黑→红 优先级取第一个非空对战配置使用（authSlot 随来源槽走 DR-010 注入闭环），仅存在于本次请求内存；借用的配置永不 secure.set 进助手槽。优点：Go 后端零改动、authSlot 语义自然闭合、与既有"运行时借用不落盘"哲学（electron-DR-012/014）同构、不触碰对战页与 Electron 对齐资产。缺点：借对话模型识图必败（服务端报错已有 annotateModelHint"请改用视觉理解模型"兜底，识图处 UI 注记风险）。代价：前端 helper 1 文件 + 页面 2 调用点 + 测试/文档。采纳。
+  - B. Go 绑定层回退（app.go 读三槽解析）——优点：前端零改动。缺点：槽位优先级逻辑进绑定层、authSlot 渲染层语义被打破（绑定层需自读三槽取 Raw Key）、解析逻辑跨层分裂、绑定测试面扩大。弃。
+  - C. 保存时复制到助手槽——优点：运行时无分支、实现最简。缺点：违背"不写入助手槽"需求；源配置改动后助手槽成旧快照（同 electron-DR-012 弃案 B 的复制语义）。弃。
+  - D. 单一全局凭据 + 按用途开关（重构三槽）——优点：根治三槽冗余。缺点：大规模重构、破坏对战页与 Electron 逐字对齐、动摇 M4 已验收面，代价远超收益。弃。
+  - E. 配置弹窗加"从对局配置导入"按钮（显式复制落盘）——优点：用户意图显式。缺点：仍是落盘复制，与"不存储"冲突；可作为 A 的补充而非替代。弃（不单独采纳）。
+- 结论：A。优先级 黑→红（人机 LLM 页的 LLM 配置惯常存黑方槽，命中率最高；用户选定）；范围 = 识图 + 求解辅助（用户选定）。边界口径沿 DR-012：仅"三字段全空"触发借用；助手槽部分填写 = 独立无效配置，维持现有提示不借用。
+- 理由：A 与 electron-DR-012"空侧运行时跟随、不落盘"完全同构，是把既定镜像语义扩展到第三个槽位，不发明新机制；掩码 Key 经来源槽 authSlot 注入的管道现成（TestVisionReadBoardBindingEndToEnd/TestLlmChatBindingAuthSlot 已覆盖）；C/D/E 均落盘或重构，违背需求或代价失衡。
+- 影响：frontend/src/features/studio/assistantConfig.ts（新，纯函数）；EndgameStudioPage.tsx 识图/求解辅助两调用点（借用提示 + authSlot 随源槽）；AssistantConfigDialog 不动；design_docs/05 §6/§7、08 §4 口径补充；Go 代码零改动。
+
 ## 附：沿用 Electron 版不做重裁的决策清单
+
 
 
 | electron-DR | 主题 | Go 版沿用方式 |
